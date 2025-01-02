@@ -2,6 +2,7 @@ from typing import Optional
 
 import lightning as L
 from datasets import load_dataset, load_from_disk
+from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from m2d.data.segmentor import Segmentor
@@ -70,6 +71,12 @@ class M2DDataModule(L.LightningDataModule):
 
         return cls(save_path)
 
+    def train_dataloader(self):
+        return DataLoader(self.data["train"])
+    
+    def val_dataloader(self):
+        return DataLoader(self.data["test"])
+
 
 if __name__ == "__main__":
     """
@@ -103,4 +110,4 @@ if __name__ == "__main__":
         save_path="./local/processed_openorca"
     )
 
-    print(data.data)
+    print(data)
