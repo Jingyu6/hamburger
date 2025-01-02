@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 
-from plot_utils import plot_entropies
+from m2d.plot_utils import plot_entropies
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct", use_fast=True)
 model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
@@ -9,7 +9,6 @@ model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
     trust_remote_code=True, 
     torch_dtype=torch.bfloat16, 
     device_map="auto", 
-    attn_implementation="eager"
 )
 
 content = """
