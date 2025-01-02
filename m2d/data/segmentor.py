@@ -82,12 +82,29 @@ class Segmentor:
         self.model.prefill = MethodType(_prefill, self.model)
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_steps = 4
+        self.ratio_threshold = 0.3
 
     def _calc_steps(
         self, 
-
+        entropy: List[float]
     ):
-        pass
+        steps = []
+        last_cnt = 0
+        last_max = -1
+        for e in entropy:
+            if e > self.ratio_threshold * last_max or last_cnt >= self.max_steps:
+                # start new segment
+                steps.append(last_cnt)
+                last_cnt = 1
+                last_max = e
+            else:
+                # keep old segment
+                last_cnt += 1
+        if last_cnt > 0:
+            steps.append(last_cnt)
+        steps = steps[1:]
+        assert sum(steps) == len(entropy)
+        return steps
 
     @torch.inference_mode
     def segment(
@@ -97,10 +114,7 @@ class Segmentor:
     ):
         assert len(instructions) == len(responses)
 
-        input_ids = []
         inst_lens = []
-        steps = []
-
         for inst in instructions:
             conversation = [{"role": "user", "content": inst}]
             inst_ids = self.tokenizer.apply_chat_template(
@@ -135,23 +149,27 @@ class Segmentor:
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
         token_entropy_list = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
 
-        # from m2d.plot_utils import plot_entropies
-        # tsl = self.tokenizer.batch_decode(input_ids[2].cpu().tolist()[inst_lens[2] + 1:])
-        # tel = token_entropy_list[2][inst_lens[2]:-1]
-        # plot_entropies(
-        #     token_str_list=tsl, 
-        #     token_entropy_list=tel
-        # )
-        # exit()
+        results = {
+            "input_ids": [], 
+            "steps": [],  
+            "inst_lens": inst_lens
+        }
 
-        for inst_len, mask, entropy in zip(
+        for inst_len, mask, inputs, entropy in zip(
             inst_lens, 
             attention_mask.cpu().tolist(), 
+            input_ids.cpu().tolist(), 
             token_entropy_list
         ):
-            print(mask)
-            print(entropy)
-            print()
+            token_cnt = sum(mask)
+            entropy = entropy[inst_len:token_cnt]
+            inputs = inputs[:token_cnt]
+            steps = self._calc_steps(entropy)
+            
+            results["input_ids"].append(inputs)
+            results["steps"].append(steps)
+        
+        return results
 
 
 if __name__ == "__main__":
@@ -175,7 +193,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer
     )
 
-    segmentor.segment(
+    print(segmentor.segment(
         instructions=[
             "Could you give me an example of json object?", 
             "Who is Magnus Carlsen?", 
@@ -186,4 +204,4 @@ if __name__ == "__main__":
             "He is the chess world champion.", 
             "Beijing is the capital of China."
         ]
-    )
+    ))
