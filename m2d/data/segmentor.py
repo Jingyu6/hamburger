@@ -142,7 +142,8 @@ class Segmentor:
 
         logits = self.model.prefill(
             input_ids=input_ids,
-            attention_mask=attention_mask
+            attention_mask=attention_mask, 
+            use_cache=False
         )
 
         probs = torch.nn.functional.softmax(logits, dim=-1)
