@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 
 import lightning as L
@@ -12,7 +13,7 @@ class M2DDataModule(L.LightningDataModule):
     def __init__(
         self, 
         save_path: str, 
-        test_ratio: float = 0.2
+        test_ratio: float
     ):
         super().__init__()
         self.data = load_from_disk(save_path)
@@ -29,12 +30,19 @@ class M2DDataModule(L.LightningDataModule):
         tokenizer: Optional[AutoTokenizer] = None, 
         inst_name: str = "instruction", 
         resp_name: str = "response", 
-        max_num_samples: int = -1
+        max_num_samples: int = -1, 
+        test_ratio: float = 0.2
     ):
-        assert dataset_name is not None or save_path is not None
+        assert save_path is not None
+
+        if os.path.exists(save_path):
+            try:
+                data = cls(save_path, test_ratio=test_ratio)
+                return data
+            except:
+                print("Failed to load existing data. Try creating new data. ")
 
         if dataset_name is not None:
-            assert save_path is not None
             assert model is not None
             assert tokenizer is not None
 
@@ -69,7 +77,7 @@ class M2DDataModule(L.LightningDataModule):
                 max_shard_size="1GB"
             )
 
-        return cls(save_path)
+        return cls(save_path, test_ratio=test_ratio)
 
     def train_dataloader(self):
         return DataLoader(self.data["train"])
@@ -79,7 +87,6 @@ class M2DDataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    """
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -101,13 +108,7 @@ if __name__ == "__main__":
         save_path="./local/processed_openorca", 
         model=model, 
         tokenizer=tokenizer, 
-        max_num_samples=4096
-    )
-    """
-
-    # afterwards, load the data
-    data = M2DDataModule.from_hf_dataset(
-        save_path="./local/processed_openorca"
+        max_num_samples=8196
     )
 
     print(data)
