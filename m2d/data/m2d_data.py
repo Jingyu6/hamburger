@@ -1,7 +1,9 @@
 import os
-from typing import Optional
+from functools import partial
+from typing import Any, Dict, List, Optional
 
 import lightning as L
+import torch
 from datasets import load_dataset, load_from_disk
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -13,13 +15,17 @@ class M2DDataModule(L.LightningDataModule):
     def __init__(
         self, 
         save_path: str, 
-        test_ratio: float
+        test_ratio: float = 0.2, 
+        batch_size: int = 8, 
+        pad_token_id: str = 0
     ):
         super().__init__()
         self.data = load_from_disk(save_path)
         self.data = self.data.train_test_split(
             test_size=int(len(self.data) * test_ratio)
         )
+        self.batch_size = batch_size
+        self.pad_token_id = pad_token_id
 
     @classmethod
     def from_hf_dataset(
@@ -31,13 +37,13 @@ class M2DDataModule(L.LightningDataModule):
         inst_name: str = "instruction", 
         resp_name: str = "response", 
         max_num_samples: int = -1, 
-        test_ratio: float = 0.2
+        **kwargs
     ):
         assert save_path is not None
 
         if os.path.exists(save_path):
             try:
-                data = cls(save_path, test_ratio=test_ratio)
+                data = cls(save_path, **kwargs)
                 return data
             except:
                 print("Failed to load existing data. Try creating new data. ")
@@ -77,13 +83,45 @@ class M2DDataModule(L.LightningDataModule):
                 max_shard_size="1GB"
             )
 
-        return cls(save_path, test_ratio=test_ratio)
+        return cls(save_path, **kwargs)
+
+    @staticmethod
+    def _collate_fn(
+        batch: List[Dict[str, Any]], 
+        pad_token_id: int
+    ):
+        input_ids = [torch.LongTensor(sample["input_ids"]) for sample in batch]
+        inst_lens = [sample["inst_lens"] for sample in batch]
+        steps = [sample["steps"] for sample in batch]
+        
+        # pad input_ids
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            sequences=input_ids, 
+            batch_first=True, 
+            padding_value=pad_token_id
+        )
+
+        # TODO: change this to padding free approach
+        return {
+            "input_ids": input_ids, 
+            "inst_lens": inst_lens, 
+            "steps": steps
+        }
 
     def train_dataloader(self):
-        return DataLoader(self.data["train"])
+        return DataLoader(
+            self.data["train"], 
+            batch_size=self.batch_size, 
+            collate_fn=partial(M2DDataModule._collate_fn, pad_token_id=self.pad_token_id), 
+            shuffle=True
+        )
     
     def val_dataloader(self):
-        return DataLoader(self.data["test"])
+        return DataLoader(
+            self.data["test"], 
+            batch_size=self.batch_size, 
+            collate_fn=partial(M2DDataModule._collate_fn, pad_token_id=self.pad_token_id), 
+        )
 
 
 if __name__ == "__main__":
