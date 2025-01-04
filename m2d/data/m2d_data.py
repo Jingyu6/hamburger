@@ -17,7 +17,6 @@ class M2DDataModule(L.LightningDataModule):
         save_path: str, 
         test_ratio: float = 0.2, 
         batch_size: int = 8, 
-        pad_token_id: str = 0
     ):
         super().__init__()
         self.data = load_from_disk(save_path)
@@ -25,7 +24,6 @@ class M2DDataModule(L.LightningDataModule):
             test_size=int(len(self.data) * test_ratio)
         )
         self.batch_size = batch_size
-        self.pad_token_id = pad_token_id
 
     @classmethod
     def from_hf_dataset(
@@ -87,23 +85,19 @@ class M2DDataModule(L.LightningDataModule):
 
     @staticmethod
     def _collate_fn(
-        batch: List[Dict[str, Any]], 
-        pad_token_id: int
+        batch: List[Dict[str, Any]]
     ):
         input_ids = [torch.LongTensor(sample["input_ids"]) for sample in batch]
+        seq_lens = [len(ids) for ids in input_ids]
         inst_lens = [sample["inst_lens"] for sample in batch]
         steps = [sample["steps"] for sample in batch]
         
-        # pad input_ids
-        input_ids = torch.nn.utils.rnn.pad_sequence(
-            sequences=input_ids, 
-            batch_first=True, 
-            padding_value=pad_token_id
-        )
+        # flatten ids
+        input_ids = torch.concat(input_ids, dim=0)
 
-        # TODO: change this to padding free approach
         return {
             "input_ids": input_ids, 
+            "seq_lens": seq_lens, 
             "inst_lens": inst_lens, 
             "steps": steps
         }
@@ -112,7 +106,7 @@ class M2DDataModule(L.LightningDataModule):
         return DataLoader(
             self.data["train"], 
             batch_size=self.batch_size, 
-            collate_fn=partial(M2DDataModule._collate_fn, pad_token_id=self.pad_token_id), 
+            collate_fn=M2DDataModule._collate_fn, 
             shuffle=True
         )
     
@@ -120,7 +114,7 @@ class M2DDataModule(L.LightningDataModule):
         return DataLoader(
             self.data["test"], 
             batch_size=self.batch_size, 
-            collate_fn=partial(M2DDataModule._collate_fn, pad_token_id=self.pad_token_id), 
+            collate_fn=M2DDataModule._collate_fn, 
         )
 
 
