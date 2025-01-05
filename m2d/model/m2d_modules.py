@@ -2,6 +2,9 @@ from typing import List
 
 import torch
 import torch.nn as nn
+from transformers.models.llama import LlamaConfig
+from transformers.models.llama.modeling_llama import (LlamaDecoderLayer,
+                                                      LlamaRotaryEmbedding)
 
 
 class CompositionalEmbedder(nn.Module):
@@ -56,7 +59,61 @@ class CompositionalEmbedder(nn.Module):
 
 
 class MicroStepDecoder(nn.Module):
-    def __init__(self):
+    def __init__(
+        self, 
+        config: LlamaConfig, 
+        micro_stop_token_id: int, 
+        max_steps: int
+    ):
+        """
+            Currently we're just using a single transformer decoder layer
+        """
         super().__init__()
-
+        self.micro_stop_token_id = micro_stop_token_id
+        self.max_steps = max_steps
+        assert self.max_steps >= 1
+        self.decoder = LlamaDecoderLayer(config=config, layer_idx=0)
+        self.rotary_emb = LlamaRotaryEmbedding(config=config)
     
+    def forward(
+        self, 
+        hidden_states: torch.Tensor, # [1, total_seq_len, model_size]
+        comp_seq_lens: List[int], 
+        inst_lens: List[int]
+    ):
+        """
+            Since we're just doing SFT for now, we just need to
+            figure out how to do micro step decoding
+        """
+
+        # extract macro step hidden
+        macro_step_hiddens = []
+        offset = 0
+        for seq_len, inst_len in zip(comp_seq_lens, inst_lens):
+            macro_step_hiddens.append(
+                hidden_states[0, offset + inst_len: offset + seq_len]
+            )
+            offset += seq_len
+        macro_step_hiddens = torch.concat(macro_step_hiddens, dim=0).unsqueeze(1)
+
+        # micro step decoding
+        hiddens = macro_step_hiddens
+        out = None
+        for idx in range(self.max_steps):
+            position_embeddings = self.rotary_emb(
+                hiddens, 
+                torch.arange(0, idx + 1)[None, ].to(hiddens.device)
+            )
+
+            out = self.decoder.forward(
+                hiddens, 
+                position_embeddings=position_embeddings, 
+            )[0]
+
+            hiddens = torch.concat(
+                [hiddens, out[:, -1:, :]], 
+                dim=1
+            )
+
+        out = out.transpose(0, 1).view(-1, hidden_states.shape[-1])
+        return out

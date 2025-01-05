@@ -1,5 +1,9 @@
+from typing import List
+
 import lightning as L
-from transformers import AutoTokenizer, LlamaModel
+import torch
+from transformers import AutoTokenizer, LlamaForCausalLM, LlamaModel
+from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
 
@@ -13,19 +17,65 @@ class M2DLlama(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.tokenizer: AutoTokenizer = AutoTokenizer.from_pretrained(base_model_name)
-        self.base_model: LlamaModel = LlamaModel.from_pretrained(base_model_name)
+        model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(base_model_name)
+        tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+        self.base_model: LlamaModel = model.base_model
+        self.lm_head = model.lm_head
         self.comp_embedder = CompositionalEmbedder(
-            self.base_model.embed_tokens, 
-            max_steps
+            embedding=self.base_model.embed_tokens, 
+            max_steps=max_steps
         )
-        self.micro_step_decoder = MicroStepDecoder()
+        self.micro_step_decoder = MicroStepDecoder(
+            config=self.base_model.config, 
+            # TODO: we will prob change to a reserved token later
+            micro_stop_token_id=tokenizer.eos_token_id, 
+            max_steps=max_steps
+        )
 
-    def forward(self, **inputs):
-        pass
+    def forward(
+        self, 
+        input_ids: torch.LongTensor, 
+        seq_lens: List[int], 
+        inst_lens: List[int], 
+        steps: List[List[int]] 
+    ):
+        # composition embedding
+        token_embeds, position_ids, comp_seq_lens = self.comp_embedder.forward(
+            input_ids, 
+            seq_lens, 
+            inst_lens, 
+            steps
+        )
+
+        # get hidden state of the base llama
+        base_output: BaseModelOutputWithPast = self.base_model.forward(
+            inputs_embeds=token_embeds, 
+            position_ids=position_ids, 
+            use_cache=False, 
+            return_dict=True, 
+        )
+
+        hidden_states = base_output.last_hidden_state
+
+        # micro step decoding
+        micro_step_outputs = self.micro_step_decoder.forward(
+            hidden_states=hidden_states, 
+            comp_seq_lens=comp_seq_lens, 
+            inst_lens=inst_lens
+        )
+
+        exit()
 
     def training_step(self, batch, batch_idx):
-        print(batch)
+        """
+        batch: {
+            "input_ids": input_ids, 
+            "seq_lens": seq_lens, 
+            "inst_lens": inst_lens, 
+            "steps": steps
+        }
+        """
+        output = self.forward(**batch)
         exit()
 
     def validation_step(self, batch, batch_idx):
