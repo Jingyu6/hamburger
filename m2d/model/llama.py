@@ -116,7 +116,7 @@ class M2DLlama(L.LightningModule):
         self.log_dict({
             "loss": loss, 
             "perplexity": torch.exp(loss)
-        }, on_step=True, prog_bar=True)
+        }, on_step=True, prog_bar=True, logger=True)
 
         return loss
 
