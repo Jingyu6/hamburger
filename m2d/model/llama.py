@@ -3,7 +3,7 @@ from typing import List
 import lightning as L
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from transformers import AutoTokenizer, LlamaForCausalLM, LlamaModel
+from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
@@ -25,8 +25,8 @@ class M2DLlama(L.LightningModule):
             embedding=self.model.base_model.embed_tokens, 
             max_steps=max_steps
         )
-        # TODO: we will prob change to a reserved token later
-        self.micro_stop_token_id = tokenizer.eos_token_id
+        # this is a reserved token in the model '<|reserved_special_token_0|>'
+        self.micro_stop_token_id = 128002
         self.micro_step_decoder = MicroStepDecoder(
             config=self.model.base_model.config, 
             micro_stop_token_id=self.micro_stop_token_id, 

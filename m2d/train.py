@@ -9,7 +9,7 @@ model = M2DLlama()
 
 # prepare data
 data_module = M2DDataModule.from_hf_dataset(
-    save_path="./local/processed_openorca", 
+    save_path="./local/processed_openorca_8k", 
     test_ratio=0.1, 
     batch_size=4, 
 )
@@ -28,7 +28,7 @@ checkpoint_callback = ModelCheckpoint(
 trainer = L.Trainer(
     max_epochs=1, 
     gradient_clip_val=1.0, 
-    accumulate_grad_batches=2, 
+    # accumulate_grad_batches=2, 
     callbacks=[checkpoint_callback], 
 )
 
