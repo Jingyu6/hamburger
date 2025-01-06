@@ -34,6 +34,7 @@ class M2DDataModule(L.LightningDataModule):
         inst_name: str = "instruction", 
         resp_name: str = "response", 
         max_num_samples: int = -1, 
+        empty_cache_every: int = 1024, 
         **kwargs
     ):
         assert save_path is not None
@@ -61,7 +62,11 @@ class M2DDataModule(L.LightningDataModule):
             if max_num_samples > 0:
                 raw_dataset = raw_dataset.select(range(max_num_samples))
 
-            def process_batch(batch):
+            def process_batch(batch, indices):
+                # avoids memory leak
+                if any([x % empty_cache_every == 0 for x in indices]):
+                    torch.cuda.empty_cache()
+
                 return segmentor.segment(
                     instructions=batch[inst_name], 
                     responses=batch[resp_name]
@@ -69,10 +74,11 @@ class M2DDataModule(L.LightningDataModule):
 
             processed_data = raw_dataset.map(
                 process_batch, 
-                batch_size=2, # make sure we dont get OOM
+                batch_size=4, # make sure we dont get OOM
                 batched=True, 
                 num_proc=1, # need to use 1 since we only have 1 model
-                remove_columns=raw_dataset.column_names
+                remove_columns=raw_dataset.column_names, 
+                with_indices=True
             )
         
             processed_data.save_to_disk(
