@@ -1,5 +1,4 @@
 import os
-from functools import partial
 from typing import Any, Dict, List, Optional
 
 import lightning as L
@@ -70,7 +69,7 @@ class M2DDataModule(L.LightningDataModule):
 
             processed_data = raw_dataset.map(
                 process_batch, 
-                batch_size=4, 
+                batch_size=2, # make sure we dont get OOM
                 batched=True, 
                 num_proc=1, # need to use 1 since we only have 1 model
                 remove_columns=raw_dataset.column_names
@@ -140,7 +139,7 @@ if __name__ == "__main__":
         save_path="./local/processed_openorca", 
         model=model, 
         tokenizer=tokenizer, 
-        max_num_samples=8196
+        max_num_samples=-1
     )
 
     print(data)

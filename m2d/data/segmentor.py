@@ -147,6 +147,7 @@ class Segmentor:
             use_cache=False
         )
 
+        # TODO: we could optimize this memory later
         probs = torch.nn.functional.softmax(logits, dim=-1)
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
         token_entropy_list = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
