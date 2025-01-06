@@ -21,16 +21,14 @@ class M2DLlama(L.LightningModule):
         tokenizer = AutoTokenizer.from_pretrained(base_model_name)
         # this is for optimization
         self.model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(base_model_name)
-        self.base_model: LlamaModel = self.model.base_model
-        self.lm_head = self.model.lm_head
         self.comp_embedder = CompositionalEmbedder(
-            embedding=self.base_model.embed_tokens, 
+            embedding=self.model.base_model.embed_tokens, 
             max_steps=max_steps
         )
         # TODO: we will prob change to a reserved token later
         self.micro_stop_token_id = tokenizer.eos_token_id
         self.micro_step_decoder = MicroStepDecoder(
-            config=self.base_model.config, 
+            config=self.model.base_model.config, 
             micro_stop_token_id=self.micro_stop_token_id, 
             max_steps=max_steps
         )
@@ -52,7 +50,7 @@ class M2DLlama(L.LightningModule):
         )
 
         # get hidden state of the base llama
-        base_output: BaseModelOutputWithPast = self.base_model.forward(
+        base_output: BaseModelOutputWithPast = self.model.base_model.forward(
             inputs_embeds=token_embeds, 
             position_ids=position_ids, 
             use_cache=False, 
@@ -69,8 +67,8 @@ class M2DLlama(L.LightningModule):
         )
 
         # calculate logits
-        assert self.base_model.config.pretraining_tp == 1
-        logits = self.lm_head.forward(micro_step_outputs)
+        assert self.model.config.pretraining_tp == 1
+        logits = self.model.lm_head.forward(micro_step_outputs)
 
         return logits
 
@@ -114,6 +112,12 @@ class M2DLlama(L.LightningModule):
         logits = self.forward(**batch)
         targets = self._get_targets(**batch)
         loss = self._calc_loss(logits, targets)
+
+        self.log_dict({
+            "loss": loss, 
+            "perplexity": torch.exp(loss)
+        }, on_step=True, prog_bar=True)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
