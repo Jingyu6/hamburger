@@ -147,25 +147,23 @@ class Segmentor:
             use_cache=False
         )
 
-        # TODO: we could optimize this memory later
-        probs = torch.nn.functional.softmax(logits, dim=-1)
-        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-        token_entropy_list = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
-
         results = {
             "input_ids": [], 
             "steps": [],  
             "inst_lens": inst_lens
         }
 
-        for inst_len, mask, inputs, entropy in zip(
+        for inst_len, mask, inputs, logit in zip(
             inst_lens, 
             attention_mask.cpu().tolist(), 
             input_ids.cpu().tolist(), 
-            token_entropy_list
+            logits
         ):
             token_cnt = sum(mask)
-            entropy = entropy[inst_len:token_cnt]
+
+            probs = torch.nn.functional.softmax(logit[inst_len:token_cnt], dim=-1)
+            log_probs = torch.nn.functional.log_softmax(logit[inst_len:token_cnt], dim=-1)
+            entropy = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
             inputs = inputs[:token_cnt]
             steps = self._calc_steps(entropy)
             
