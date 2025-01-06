@@ -79,7 +79,8 @@ class MicroStepDecoder(nn.Module):
         self, 
         hidden_states: torch.Tensor, # [1, total_seq_len, model_size]
         comp_seq_lens: List[int], 
-        inst_lens: List[int]
+        inst_lens: List[int], 
+        take_off_last: bool = True
     ):
         """
             Since we're just doing SFT for now, we just need to
@@ -91,7 +92,7 @@ class MicroStepDecoder(nn.Module):
         offset = 0
         for seq_len, inst_len in zip(comp_seq_lens, inst_lens):
             macro_step_hiddens.append(
-                hidden_states[0, offset + inst_len: offset + seq_len]
+                hidden_states[0, offset + inst_len - 1: offset + seq_len - 1 if take_off_last else 0]
             )
             offset += seq_len
         macro_step_hiddens = torch.concat(macro_step_hiddens, dim=0).unsqueeze(1)
@@ -115,5 +116,5 @@ class MicroStepDecoder(nn.Module):
                 dim=1
             )
 
-        out = out.transpose(0, 1).view(-1, hidden_states.shape[-1])
+        out = out.transpose(0, 1).reshape(-1, hidden_states.shape[-1])
         return out

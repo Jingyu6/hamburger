@@ -11,7 +11,6 @@ data_module = M2DDataModule.from_hf_dataset(
     save_path="./local/processed_openorca", 
     test_ratio=0.1, 
     batch_size=8, 
-    pad_token_id=model.tokenizer.eos_token_id
 )
 
 # create trainer
