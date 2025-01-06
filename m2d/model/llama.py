@@ -22,13 +22,13 @@ class M2DLlama(L.LightningModule):
         # this is for optimization
         self.model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(base_model_name)
         self.comp_embedder = CompositionalEmbedder(
-            embedding=self.model.base_model.embed_tokens, 
+            embedding=self.model.model.embed_tokens, 
             max_steps=max_steps
         )
         # this is a reserved token in the model '<|reserved_special_token_0|>'
         self.micro_stop_token_id = 128002
         self.micro_step_decoder = MicroStepDecoder(
-            config=self.model.base_model.config, 
+            config=self.model.config, 
             micro_stop_token_id=self.micro_stop_token_id, 
             max_steps=max_steps
         )
@@ -50,7 +50,7 @@ class M2DLlama(L.LightningModule):
         )
 
         # get hidden state of the base llama
-        base_output: BaseModelOutputWithPast = self.model.base_model.forward(
+        base_output: BaseModelOutputWithPast = self.model.model.forward(
             inputs_embeds=token_embeds, 
             position_ids=position_ids, 
             use_cache=False, 
@@ -88,8 +88,11 @@ class M2DLlama(L.LightningModule):
                     dim=0
                 )
             )
+            offset += seq_len
+        # add a dummy tensor at the end to make sure all tensors are of size max_steps
+        targets.append(torch.arange(0, self.max_steps).to(input_ids.device))
         targets = pad_sequence(targets, batch_first=True, padding_value=self.micro_stop_token_id)
-        return targets.view(-1)
+        return targets.view(-1)[:-self.max_steps]
 
     def _calc_loss(
         self, 
@@ -126,10 +129,10 @@ class M2DLlama(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam([
                 # smaller learning rate for the main model
-                {"params": self.model.parameters(), "lr": 1e-6}, 
+                {"params": self.model.parameters(), "lr": 1e-5}, 
                 {"params": self.micro_step_decoder.parameters()}
             ], 
-            lr=1e-5
+            lr=5e-5
         )
         return optimizer
 
