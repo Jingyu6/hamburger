@@ -20,7 +20,7 @@ checkpoint_callback = ModelCheckpoint(
     save_top_k=1,
     monitor="step",
     mode="max",
-    every_n_train_steps=256, 
+    every_n_train_steps=1024, 
     dirpath="./local/ckpts",
     filename="m2d-llama-1B-{global_step}",
 )
@@ -37,6 +37,7 @@ wandb_logger = WandbLogger(
 
 # create trainer
 trainer = L.Trainer(
+    strategy="deepspeed", 
     max_epochs=1, 
     gradient_clip_val=1.0, 
     accumulate_grad_batches=4, 
