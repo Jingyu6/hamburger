@@ -7,6 +7,7 @@ from transformers import LlamaForCausalLM
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
+from m2d.model.wsd import get_wsd_schedule
 
 
 class M2DLlama(L.LightningModule):
@@ -128,12 +129,32 @@ class M2DLlama(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam([
                 # smaller learning rate for the main model
-                {"params": self.model.parameters(), "lr": 1e-5}, 
+                {"params": self.model.parameters(), 
+                    "lr": 5e-6, "weight_decay": 5e-7}, 
                 {"params": self.micro_step_decoder.parameters()}
             ], 
-            lr=5e-5
+            lr=1e-5, 
+            weight_decay=1e-6
         )
+
+        # lr_scheduler = get_wsd_schedule(
+        #     optimizer, 
+        #     num_warmup_steps=100, 
+        #     num_stable_steps=10000, 
+        #     num_decay_steps=1000, 
+        #     min_lr_ratio=1e-5
+        # )
+
+        # return {
+        #     "optimizer": optimizer, 
+        #     "lr_scheduler_config": {
+        #         "scheduler": lr_scheduler, 
+        #         "interval": "step"
+        #     }
+        # }
+
         return optimizer
+
 
 if __name__ == "__main__":
     model = M2DLlama()
