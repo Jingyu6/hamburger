@@ -145,7 +145,7 @@ if __name__ == "__main__":
         save_path="./local/processed_openorca", 
         model=model, 
         tokenizer=tokenizer, 
-        max_num_samples=-1
+        max_num_samples=840000
     )
 
     print(data)

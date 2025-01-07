@@ -3,7 +3,7 @@ from typing import List
 import lightning as L
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from transformers import AutoTokenizer, LlamaForCausalLM
+from transformers import LlamaForCausalLM
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
@@ -18,7 +18,6 @@ class M2DLlama(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        tokenizer = AutoTokenizer.from_pretrained(base_model_name)
         # this is for optimization
         self.model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(base_model_name)
         self.comp_embedder = CompositionalEmbedder(
@@ -117,8 +116,8 @@ class M2DLlama(L.LightningModule):
         loss = self._calc_loss(logits, targets)
 
         self.log_dict({
-            "loss": loss, 
-            "perplexity": torch.exp(loss)
+            "train_loss": loss, 
+            "train_perplexity": torch.exp(loss)
         }, on_step=True, prog_bar=True, logger=True)
 
         return loss

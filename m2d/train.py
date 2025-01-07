@@ -1,5 +1,6 @@
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.loggers import WandbLogger
 
 from m2d.data.m2d_data import M2DDataModule
 from m2d.model.llama import M2DLlama
@@ -9,7 +10,7 @@ model = M2DLlama()
 
 # prepare data
 data_module = M2DDataModule.from_hf_dataset(
-    save_path="./local/processed_openorca_8k", 
+    save_path="./local/processed_openorca", 
     test_ratio=0.1, 
     batch_size=2, 
 )
@@ -24,12 +25,19 @@ checkpoint_callback = ModelCheckpoint(
     filename="m2d-llama-1B-{global_step}",
 )
 
+# logger
+wandb_logger = WandbLogger(
+    project="m2d", 
+    log_model="all"
+)
+
 # create trainer
 trainer = L.Trainer(
     max_epochs=1, 
     gradient_clip_val=1.0, 
     accumulate_grad_batches=4, 
     callbacks=[checkpoint_callback], 
+    logger=wandb_logger
 )
 
 # start training
