@@ -100,7 +100,7 @@ class MicroStepDecoder(nn.Module):
         # micro step decoding
         hiddens = macro_step_hiddens
         out = None
-        for idx in range(self.max_steps):
+        for idx in range(self.max_steps + 1):
             position_embeddings = self.rotary_emb(
                 hiddens, 
                 torch.arange(0, idx + 1)[None, ].to(hiddens.device)
@@ -116,5 +116,5 @@ class MicroStepDecoder(nn.Module):
                 dim=1
             )
 
-        out = out.transpose(0, 1).reshape(-1, hidden_states.shape[-1])
+        # [total_seq_len, max_steps, model_size]
         return out

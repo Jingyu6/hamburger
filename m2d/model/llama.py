@@ -59,18 +59,44 @@ class M2DLlama(L.LightningModule):
 
         hidden_states = base_output.last_hidden_state
 
-        # micro step decoding [num_of_decodes * max_steps, model_size]
+        # micro step decoding [num_of_decodes, max_steps, model_size]
         micro_step_outputs = self.micro_step_decoder.forward(
             hidden_states=hidden_states, 
             comp_seq_lens=comp_seq_lens, 
             inst_lens=inst_lens
         )
 
+        micro_step_outputs = self._trim_micro_steps(micro_step_outputs, steps)
+
         # calculate logits
         assert self.model.config.pretraining_tp == 1
         logits = self.model.lm_head.forward(micro_step_outputs)
 
         return logits
+
+    def _trim_micro_steps(
+        self,
+        data: torch.Tensor, 
+        steps: List[List[int]]
+    ) -> torch.Tensor:
+        """
+            We remove unnecessary tokens here
+            e.g.: 
+            [---max_step---]
+            [t0][t1][t2][pd][pd]
+            [m0][m1][m2][m3][m4]
+            
+            [t0][t1][t2]
+            [m0][m1][m2]
+            This will improve loss accuracy and memory usage
+        """
+        step = []
+        for s in steps:
+            step.extend(s)
+        trim_data = []
+        for s, d in zip(step, data):
+            trim_data.append(d[:s+1])
+        return torch.concat(trim_data, dim=0)
 
     def _get_targets(
         self,
@@ -90,9 +116,9 @@ class M2DLlama(L.LightningModule):
             )
             offset += seq_len
         # add a dummy tensor at the end to make sure all tensors are of size max_steps
-        targets.append(torch.arange(0, self.max_steps).to(input_ids.device))
+        targets.append(torch.arange(0, self.max_steps + 1).to(input_ids.device))
         targets = pad_sequence(targets, batch_first=True, padding_value=self.micro_stop_token_id)
-        return targets.view(-1)[:-self.max_steps]
+        return self._trim_micro_steps(targets[:-1], steps)
 
     def _calc_loss(
         self, 

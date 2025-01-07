@@ -5,6 +5,8 @@ from lightning.pytorch.loggers import WandbLogger
 from m2d.data.m2d_data import M2DDataModule
 from m2d.model.llama import M2DLlama
 
+L.seed_everything(227)
+
 # create model
 model = M2DLlama()
 
@@ -37,10 +39,11 @@ wandb_logger = WandbLogger(
 
 # create trainer
 trainer = L.Trainer(
-    strategy="deepspeed", 
+    strategy="fsdp", 
     max_epochs=1, 
-    gradient_clip_val=1.0, 
+    # gradient_clip_val=1.0, 
     accumulate_grad_batches=4, 
+    num_sanity_val_steps=0, 
     callbacks=[
         checkpoint_callback, 
         # lr_monitor_callback
