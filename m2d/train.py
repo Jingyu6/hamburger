@@ -12,7 +12,7 @@ model = M2DLlama()
 
 # prepare data
 data_module = M2DDataModule.from_hf_dataset(
-    save_path="./local/processed_openorca", 
+    save_path="./local/processed_openorca_4096", 
     test_ratio=0.1, 
     batch_size=2, 
 )
@@ -39,9 +39,9 @@ wandb_logger = WandbLogger(
 
 # create trainer
 trainer = L.Trainer(
-    strategy="fsdp", 
+    strategy="deepspeed_stage_3", 
     max_epochs=1, 
-    # gradient_clip_val=1.0, 
+    gradient_clip_val=1.0, 
     accumulate_grad_batches=4, 
     num_sanity_val_steps=0, 
     callbacks=[
