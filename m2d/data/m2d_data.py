@@ -35,6 +35,7 @@ class M2DDataModule(L.LightningDataModule):
         resp_name: str = "response", 
         max_num_samples: int = -1, 
         empty_cache_every: int = 1024, 
+        max_len: Optional[int] = None, 
         **kwargs
     ):
         assert save_path is not None
@@ -81,10 +82,21 @@ class M2DDataModule(L.LightningDataModule):
                 with_indices=True
             )
         
+            if max_len is not None:
+                print(f"Saving the original unfiltered data.")
+
             processed_data.save_to_disk(
-                save_path, 
+                save_path + "_unfiltered" if max_len is not None else "", 
                 max_shard_size="1GB"
             )
+
+            if max_len is not None:
+                print(f"Filter data which are longer than {max_len} tokens.")
+                original_size = len(processed_data)
+                processed_data = processed_data.filter(lambda x: len(x["input_ids"]) <= max_len)
+                new_size = len(processed_data)
+                print(f"Filtered {original_size - new_size} samples.")
+                processed_data.save_to_disk(save_path, max_shard_size="1GB")
 
         return cls(save_path, **kwargs)
 
