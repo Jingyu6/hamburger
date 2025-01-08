@@ -5,6 +5,7 @@ import lightning as L
 import torch
 from datasets import load_dataset, load_from_disk
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from m2d.data.segmentor import Segmentor
@@ -134,6 +135,14 @@ class M2DDataModule(L.LightningDataModule):
             collate_fn=M2DDataModule._collate_fn, 
         )
 
+    def get_speedup_estimate(self):
+        micro_steps = 0
+        macro_steps = 0
+        for s in tqdm(self.data['train']):
+            steps = s["steps"]
+            micro_steps += sum(steps)
+            macro_steps += len(steps)
+        print(f"Approximate decoding speedup: {(micro_steps / macro_steps) * 100:.2f}%")
 
 if __name__ == "__main__":
     import torch
