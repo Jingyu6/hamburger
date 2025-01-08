@@ -21,6 +21,7 @@ class M2DLlama(L.LightningModule):
 
         # this is for optimization
         self.model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(base_model_name)
+        self.model.train()
         self.comp_embedder = CompositionalEmbedder(
             embedding=self.model.model.embed_tokens, 
             max_steps=max_steps
