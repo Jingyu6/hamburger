@@ -51,12 +51,13 @@ class M2DLlama(L.LightningModule):
             return_tensors='pt', 
             return_dict=True
         )["input_ids"][0]
-        seq_len = input_ids.shape[-1]
 
         # create a cache object
         past_key_values = {}
 
+        seq_len = input_ids.shape[-1]
         output_token_ids = []
+        total_len = seq_len
 
         # main loop
         for idx in range(max_gen_len):
@@ -68,7 +69,7 @@ class M2DLlama(L.LightningModule):
             position_ids = torch.arange(0, token_embeds.shape[1])[None, ]
             if idx != 0:
                 # correct position ids
-                position_ids += seq_len
+                position_ids += total_len
 
             base_output: BaseModelOutputWithPast = self.model.model.forward(
                 inputs_embeds=token_embeds, 
@@ -101,6 +102,7 @@ class M2DLlama(L.LightningModule):
             
             input_ids = pred_token[:micro_stop]
             seq_len = micro_stop
+            total_len += seq_len
 
             output_token_ids.append(input_ids)
 
