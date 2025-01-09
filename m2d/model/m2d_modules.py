@@ -20,6 +20,16 @@ class CompositionalEmbedder(nn.Module):
         self.embedding = embedding
         self.max_steps = max_steps
     
+    def single_forward(
+        self,
+        input_ids: torch.Tensor, 
+        is_prefill: bool
+    ):
+        if is_prefill:
+            return self.embedding.forward(input_ids)
+        else:
+            return self.embedding.forward(input_ids).mean(0, keepdim=True)
+
     def forward(
         self, 
         input_ids: torch.LongTensor, 
@@ -75,6 +85,31 @@ class MicroStepDecoder(nn.Module):
         self.decoder = LlamaDecoderLayer(config=config, layer_idx=0)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
     
+    def single_forward(
+        self,
+        hidden_states: torch.Tensor, # [1, 1, model_size]
+    ):
+        hiddens = hidden_states
+        out = None
+        for idx in range(self.max_steps + 1):
+            position_embeddings = self.rotary_emb(
+                hiddens, 
+                torch.arange(0, idx + 1)[None, ].to(hiddens.device)
+            )
+
+            out = self.decoder.forward(
+                hiddens, 
+                position_embeddings=position_embeddings, 
+            )[0]
+
+            hiddens = torch.concat(
+                [hiddens, out[:, -1:, :]], 
+                dim=1
+            )
+
+        # [1, max_steps, model_size]
+        return out
+
     def forward(
         self, 
         hidden_states: torch.Tensor, # [1, total_seq_len, model_size]

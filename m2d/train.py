@@ -13,7 +13,7 @@ model = M2DLlama()
 # prepare data
 data_module = M2DDataModule.from_hf_dataset(
     save_path="./local/processed_openorca_4096", 
-    test_ratio=0.1, 
+    test_ratio=0.01, 
     batch_size=2, 
 )
 
@@ -24,7 +24,7 @@ checkpoint_callback = ModelCheckpoint(
     mode="max",
     every_n_train_steps=1024, 
     dirpath="./local/ckpts",
-    filename="m2d-llama-1B-{global_step}",
+    filename="m2d-llama-1B-{step}",
 )
 
 # lr_monitor_callback = LearningRateMonitor(
@@ -48,6 +48,7 @@ trainer = L.Trainer(
         checkpoint_callback, 
         # lr_monitor_callback
     ], 
+    val_check_interval=256, 
     logger=wandb_logger
 )
 

@@ -1,13 +1,14 @@
+from turtle import position
 from typing import List
 
 import lightning as L
 import torch
+from deepspeed.ops.adam import FusedAdam
 from torch.nn.utils.rnn import pad_sequence
-from transformers import LlamaForCausalLM
+from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
-from m2d.model.wsd import get_wsd_schedule
 
 
 class M2DLlama(L.LightningModule):
@@ -18,6 +19,8 @@ class M2DLlama(L.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
+        self.base_model_name = base_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True) # for generation
 
         # this is for optimization
         self.model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(base_model_name)
@@ -34,6 +37,78 @@ class M2DLlama(L.LightningModule):
             max_steps=max_steps
         )
         self.max_steps = max_steps
+
+    @torch.inference_mode
+    def generate(
+        self, 
+        prompt: str, 
+        max_gen_len: int = 128, 
+        include_micro_stop_token: bool = False
+    ) -> str:
+        conversation = [{"role": "user", "content": prompt}]
+        input_ids = self.tokenizer.apply_chat_template(
+            conversation, 
+            return_tensors='pt', 
+            return_dict=True
+        )["input_ids"][0]
+        seq_len = input_ids.shape[-1]
+
+        # create a cache object
+        past_key_values = {}
+
+        output_token_ids = []
+
+        # main loop
+        for idx in range(max_gen_len):
+            token_embeds = self.comp_embedder.single_forward(
+                input_ids=input_ids, 
+                is_prefill=(idx == 0)
+            )[None, ]
+
+            position_ids = torch.arange(0, token_embeds.shape[1])[None, ]
+            if idx != 0:
+                # correct position ids
+                position_ids += seq_len
+
+            base_output: BaseModelOutputWithPast = self.model.model.forward(
+                inputs_embeds=token_embeds, 
+                position_ids=position_ids, 
+                use_cache=True, 
+                return_dict=True,
+                past_key_values=past_key_values
+            )
+
+            # update cache
+            past_key_values = base_output.past_key_values
+            # always takes the last one
+            hidden_states = base_output.last_hidden_state[:, -1:, :]
+
+            # micro steps
+            micro_step_outputs = self.micro_step_decoder.single_forward(hidden_states)
+            
+            # lm head
+            assert self.model.config.pretraining_tp == 1
+            logits = self.model.lm_head.forward(micro_step_outputs)
+            
+            # greedy tokens
+            pred_token = logits.argmax(dim=-1).view(-1)
+            
+            micro_stop = len(pred_token)
+            for i in range(len(pred_token)):
+                if pred_token[i] == self.micro_stop_token_id:
+                    micro_stop = i
+                    break
+            
+            input_ids = pred_token[:micro_stop]
+            seq_len = micro_stop
+
+            output_token_ids.append(input_ids)
+
+            if any(input_ids == self.tokenizer.eos_token_id):
+                break
+        
+        output_token_ids = torch.concat(output_token_ids, dim=0)
+        return self.tokenizer.decode(output_token_ids.cpu())
 
     def forward(
         self, 
@@ -151,10 +226,19 @@ class M2DLlama(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        pass
+        logits = self.forward(**batch)
+        targets = self._get_targets(**batch)
+        loss = self._calc_loss(logits, targets)
+
+        self.log_dict({
+            "eval_loss": loss, 
+            "eval_perplexity": torch.exp(loss)
+        }, on_step=True, prog_bar=True, logger=True)
+
+        return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam([
+        optimizer = FusedAdam([
                 # smaller learning rate for the main model
                 {"params": self.model.parameters(), 
                     "lr": 5e-6, "weight_decay": 5e-7}, 
@@ -163,22 +247,6 @@ class M2DLlama(L.LightningModule):
             lr=1e-5, 
             weight_decay=1e-6
         )
-
-        # lr_scheduler = get_wsd_schedule(
-        #     optimizer, 
-        #     num_warmup_steps=100, 
-        #     num_stable_steps=10000, 
-        #     num_decay_steps=1000, 
-        #     min_lr_ratio=1e-5
-        # )
-
-        # return {
-        #     "optimizer": optimizer, 
-        #     "lr_scheduler_config": {
-        #         "scheduler": lr_scheduler, 
-        #         "interval": "step"
-        #     }
-        # }
 
         return optimizer
 
