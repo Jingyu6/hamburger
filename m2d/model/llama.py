@@ -42,8 +42,7 @@ class M2DLlama(L.LightningModule):
     def generate(
         self, 
         prompt: str, 
-        max_gen_len: int = 128, 
-        include_micro_stop_token: bool = False
+        max_gen_len: int = 128
     ) -> str:
         conversation = [{"role": "user", "content": prompt}]
         input_ids = self.tokenizer.apply_chat_template(
@@ -104,13 +103,22 @@ class M2DLlama(L.LightningModule):
             seq_len = micro_stop
             total_len += seq_len
 
-            output_token_ids.append(input_ids)
+            output_token_ids.append(input_ids.cpu())
 
             if any(input_ids == self.tokenizer.eos_token_id):
                 break
         
-        output_token_ids = torch.concat(output_token_ids, dim=0)
-        return self.tokenizer.decode(output_token_ids.cpu())
+        output = self.tokenizer.decode(torch.concat(output_token_ids, dim=0))
+        micro_token_output = "|".join(self.tokenizer.batch_decode(output_token_ids))
+        token_output = "|".join(self.tokenizer.batch_decode(
+            torch.concat(output_token_ids, dim=0).view(-1)
+        ))
+        
+        return {
+            "output": output, 
+            "token_output": token_output, 
+            "micro_token_output": micro_token_output
+        }
 
     def forward(
         self, 

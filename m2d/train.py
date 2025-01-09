@@ -48,7 +48,7 @@ trainer = L.Trainer(
         checkpoint_callback, 
         # lr_monitor_callback
     ], 
-    val_check_interval=256, 
+    val_check_interval=512, 
     logger=wandb_logger
 )
 
