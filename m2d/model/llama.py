@@ -231,11 +231,14 @@ class M2DLlama(L.LightningModule):
         loss = self._calc_loss(logits, targets)
 
         self.log_dict({
-            "eval_loss": loss, 
-            "eval_perplexity": torch.exp(loss)
-        }, on_step=True, prog_bar=True, logger=True)
-
-        return loss
+                "eval_loss": loss, 
+                "eval_perplexity": torch.exp(loss)
+            },  
+            prog_bar=True, 
+            logger=True, 
+            sync_dist=True, 
+            batch_size=len(batch["seq_lens"])
+        )
 
     def configure_optimizers(self):
         optimizer = FusedAdam([
