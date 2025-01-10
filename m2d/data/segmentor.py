@@ -5,6 +5,8 @@ import torch
 from torch.nn import CrossEntropyLoss
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 
+from m2d.data.strategies import STRATEGIES
+
 
 def _prefill(
     self: LlamaForCausalLM,
@@ -82,29 +84,10 @@ class Segmentor:
         self.model.prefill = MethodType(_prefill, self.model)
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_steps = 4
-        self.ratio_threshold = 0.3
+        self.strategy = STRATEGIES["decreasing_v2"]
 
-    def _calc_steps(
-        self, 
-        entropy: List[float]
-    ):
-        steps = []
-        last_cnt = 0
-        last_max = -1
-        for e in entropy:
-            if e > self.ratio_threshold * last_max or last_cnt >= self.max_steps:
-                # start new segment
-                steps.append(last_cnt)
-                last_cnt = 1
-                last_max = e
-            else:
-                # keep old segment
-                last_cnt += 1
-        if last_cnt > 0:
-            steps.append(last_cnt)
-        steps = steps[1:]
-        assert sum(steps) == len(entropy)
-        return steps
+    def _calc_steps(self, entropy: List[float]):
+        return self.strategy(entropy=entropy, max_steps=self.max_steps)
 
     @torch.inference_mode
     def segment(
@@ -116,7 +99,11 @@ class Segmentor:
 
         inst_lens = []
         for inst in instructions:
-            conversation = [{"role": "user", "content": inst}]
+            conversation = [
+                {"role": "user", "content": inst}, 
+                # need to include the header of the response
+                {"role": "assistant", "content": ""}
+            ]
             inst_ids = self.tokenizer.apply_chat_template(
                 conversation, 
                 return_dict=True
@@ -160,9 +147,9 @@ class Segmentor:
             logits
         ):
             token_cnt = sum(mask)
-
-            probs = torch.nn.functional.softmax(logit[inst_len:token_cnt], dim=-1)
-            log_probs = torch.nn.functional.log_softmax(logit[inst_len:token_cnt], dim=-1)
+            # logits_{i - 1} means the prediction of token_{i}
+            probs = torch.nn.functional.softmax(logit[inst_len - 1:token_cnt - 1], dim=-1)
+            log_probs = torch.nn.functional.log_softmax(logit[inst_len - 1:token_cnt - 1], dim=-1)
             entropy = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
             inputs = inputs[:token_cnt]
             steps = self._calc_steps(entropy)

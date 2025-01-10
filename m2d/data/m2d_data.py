@@ -61,6 +61,11 @@ class M2DDataModule(L.LightningDataModule):
                 split="train"
             )
 
+            # TODO: refactor this part into a general filter function
+            raw_dataset = raw_dataset.filter(
+                lambda sample: sample["condition"] == "GPT4"
+            )
+
             if max_num_samples > 0:
                 raw_dataset = raw_dataset.select(range(max_num_samples))
 
@@ -163,10 +168,10 @@ if __name__ == "__main__":
 
     data = M2DDataModule.from_hf_dataset(
         dataset_name="imone/OpenOrca_FLAN", 
-        save_path="./local/processed_openorca", 
+        save_path="./local/openorca", 
         model=model, 
         tokenizer=tokenizer, 
-        max_num_samples=840000
+        max_len=4096
     )
 
     print(data)
