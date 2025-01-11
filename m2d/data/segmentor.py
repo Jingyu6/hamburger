@@ -99,11 +99,7 @@ class Segmentor:
 
         inst_lens = []
         for inst in instructions:
-            conversation = [
-                {"role": "user", "content": inst}, 
-                # need to include the header of the response
-                {"role": "assistant", "content": ""}
-            ]
+            conversation = [{"role": "user", "content": inst}]
             inst_ids = self.tokenizer.apply_chat_template(
                 conversation, 
                 return_dict=True
