@@ -1,4 +1,3 @@
-from turtle import position
 from typing import List
 
 import lightning as L
