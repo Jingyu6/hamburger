@@ -12,7 +12,7 @@ model = M2DLlama()
 
 # prepare data
 data_module = M2DDataModule.from_hf_dataset(
-    save_path="./local/processed_openorca_4096", 
+    save_path="./local/openorca", 
     test_ratio=0.01, 
     batch_size=2, 
 )
