@@ -2,6 +2,7 @@ from typing import List
 
 import torch
 import torch.nn as nn
+from transformers.cache_utils import DynamicCache
 from transformers.models.llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (LlamaDecoderLayer,
                                                       LlamaRotaryEmbedding)
@@ -134,22 +135,29 @@ class MicroStepDecoder(nn.Module):
 
         # micro step decoding
         hiddens = macro_step_hiddens
-        out = None
+        past_key_values = DynamicCache()
+        out = []
+
         for idx in range(self.max_steps + 1):
             position_embeddings = self.rotary_emb(
                 hiddens, 
-                torch.arange(0, idx + 1)[None, ].to(hiddens.device)
+                torch.arange(idx, idx + 1)[None, ].to(hiddens.device)
             )
 
-            out = self.decoder.forward(
+            past_seen_tokens = past_key_values.get_seq_length()
+            cache_position = torch.arange(
+                past_seen_tokens, past_seen_tokens + 1, device=hiddens.device
+            )
+
+            hiddens = self.decoder.forward(
                 hiddens, 
+                use_cache=True, 
+                past_key_value=past_key_values,
+                cache_position=cache_position,  
                 position_embeddings=position_embeddings, 
             )[0]
 
-            hiddens = torch.concat(
-                [hiddens, out[:, -1:, :]], 
-                dim=1
-            )
+            out.append(hiddens)
 
         # [total_seq_len, max_steps, model_size]
-        return out
+        return torch.concat(out, dim=1)

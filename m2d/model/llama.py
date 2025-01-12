@@ -5,6 +5,7 @@ import torch
 from deepspeed.ops.adam import FusedAdam
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
+from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
@@ -51,7 +52,7 @@ class M2DLlama(L.LightningModule):
         )["input_ids"][0]
 
         # create a cache object
-        past_key_values = {}
+        past_key_values = DynamicCache()
 
         seq_len = input_ids.shape[-1]
         output_token_ids = []
