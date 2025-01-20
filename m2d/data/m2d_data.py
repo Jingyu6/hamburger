@@ -163,6 +163,7 @@ if __name__ == "__main__":
         "meta-llama/Llama-3.2-1B-Instruct", 
         trust_remote_code=True, 
         torch_dtype=torch.bfloat16, 
+        attn_implementation="flash_attention_2",
         device_map="auto"
     )
 
