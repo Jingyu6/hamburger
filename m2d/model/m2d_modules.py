@@ -20,7 +20,20 @@ class CompositionalEmbedder(nn.Module):
         super().__init__()
         self.embedding = embedding
         self.max_steps = max_steps
+        self.coeffs = nn.Parameter(torch.tensor(
+            ([1.0 for _ in range(self.max_steps)]), 
+            dtype=self.embedding.weight.dtype
+        ), requires_grad=True)
     
+    def _merge_fn(
+        self, 
+        embeddings: torch.Tensor
+    ):
+        emb_len = embeddings.shape[0]
+        return (
+            torch.softmax(self.coeffs, dim=0)[:emb_len].unsqueeze(-1) * embeddings
+        ).sum(dim=0, keepdim=True)
+
     def single_forward(
         self,
         input_ids: torch.Tensor, 
@@ -29,7 +42,7 @@ class CompositionalEmbedder(nn.Module):
         if is_prefill:
             return self.embedding.forward(input_ids)
         else:
-            return self.embedding.forward(input_ids).mean(0, keepdim=True)
+            return self._merge_fn(self.embedding.forward(input_ids))
 
     def forward(
         self, 
@@ -52,7 +65,7 @@ class CompositionalEmbedder(nn.Module):
             position_ids.extend(range(inst_len))
             # response
             result_tokens.extend([
-                embs.mean(dim=0, keepdim=True) for embs in torch.split(
+                self._merge_fn(embs) for embs in torch.split(
                     token_embeds[offset + inst_len:offset + seq_len], 
                     split_size_or_sections=step, 
                     dim=0
