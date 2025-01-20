@@ -2,13 +2,18 @@ from typing import List
 
 import lightning as L
 import torch
-from deepspeed.ops.adam import FusedAdam
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
+
+# apply a monkey patch here
+import transformers.modeling_flash_attention_utils as utils
+from m2d.model.fa2_monkey_patch import prepare_fa2_from_position_ids
+
+utils.prepare_fa2_from_position_ids = prepare_fa2_from_position_ids
 
 
 class M2DLlama(L.LightningModule):
@@ -23,7 +28,11 @@ class M2DLlama(L.LightningModule):
         self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True) # for generation
 
         # this is for optimization
-        self.model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(base_model_name)
+        self.model: LlamaForCausalLM = LlamaForCausalLM.from_pretrained(
+            base_model_name, 
+            torch_dtype=torch.bfloat16, 
+            attn_implementation="flash_attention_2",
+        )
         self.model.train()
         self.comp_embedder = CompositionalEmbedder(
             embedding=self.model.model.embed_tokens, 
@@ -251,7 +260,7 @@ class M2DLlama(L.LightningModule):
         )
 
     def configure_optimizers(self):
-        optimizer = FusedAdam([
+        optimizer = torch.optim.Adam([
                 # smaller learning rate for the main model
                 {"params": self.model.parameters(), 
                     "lr": 5e-6, "weight_decay": 5e-7}, 
