@@ -98,10 +98,11 @@ class MicroStepDecoder(nn.Module):
                 torch.arange(0, idx + 1)[None, ].to(hiddens.device)
             )
 
-            out = self.decoder.forward(
-                hiddens, 
-                position_embeddings=position_embeddings, 
-            )[0]
+            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                out = self.decoder.forward(
+                    hiddens, 
+                    position_embeddings=position_embeddings, 
+                )[0]
 
             hiddens = torch.concat(
                 [hiddens, out[:, -1:, :]], 

@@ -32,6 +32,7 @@ class M2DLlama(L.LightningModule):
             base_model_name, 
             torch_dtype=torch.bfloat16, 
             attn_implementation="flash_attention_2",
+            device_map="auto"
         )
         self.model.train()
         self.comp_embedder = CompositionalEmbedder(
@@ -58,7 +59,7 @@ class M2DLlama(L.LightningModule):
             conversation, 
             return_tensors='pt', 
             return_dict=True
-        )["input_ids"][0]
+        )["input_ids"][0].to(self.model.device)
 
         # create a cache object
         past_key_values = DynamicCache()
@@ -74,7 +75,7 @@ class M2DLlama(L.LightningModule):
                 is_prefill=(idx == 0)
             )[None, ]
 
-            position_ids = torch.arange(0, token_embeds.shape[1])[None, ]
+            position_ids = torch.arange(0, token_embeds.shape[1], device=self.model.device)[None, ]
             if idx != 0:
                 # correct position ids
                 position_ids += total_len
