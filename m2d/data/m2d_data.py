@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 import lightning as L
 import torch
@@ -37,6 +37,7 @@ class M2DDataModule(L.LightningDataModule):
         max_num_samples: int = -1, 
         empty_cache_every: int = 1024, 
         max_len: Optional[int] = None, 
+        filter_fn: Optional[Callable] = None, 
         **kwargs
     ):
         assert save_path is not None
@@ -61,10 +62,8 @@ class M2DDataModule(L.LightningDataModule):
                 split="train"
             )
 
-            # TODO: refactor this part into a general filter function
-            raw_dataset = raw_dataset.filter(
-                lambda sample: sample["condition"] == "GPT4"
-            )
+            if filter_fn is not None:
+                raw_dataset = raw_dataset.filter(filter_fn)
 
             if max_num_samples > 0:
                 raw_dataset = raw_dataset.select(range(max_num_samples))
@@ -172,7 +171,20 @@ if __name__ == "__main__":
         save_path="./local/openorca", 
         model=model, 
         tokenizer=tokenizer, 
+        filter_fn=lambda sample: sample["condition"] == "GPT4", 
         max_len=4096
+    )
+
+    print(data)
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="nampdn-ai/tiny-codes", 
+        save_path="./local/tinycode", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="prompt", 
+        resp_name="response", 
+        max_len=8192
     )
 
     print(data)
