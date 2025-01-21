@@ -141,8 +141,8 @@ class M2DLlama(L.LightningModule):
         
         all_token_ids = torch.concat(output_token_ids, dim=0)
         output = self.tokenizer.decode(all_token_ids)
-        micro_token_output = "|".join(self.tokenizer.batch_decode(output_token_ids))
-        token_output = "|".join(self.tokenizer.batch_decode(all_token_ids.view(-1)))
+        micro_token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(output_token_ids))
+        token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(all_token_ids.view(-1)))
         
         return {
             "output": output, 
