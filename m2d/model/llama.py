@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
-from m2d.model.m2d_modules import CompositionalEmbedder, MicroStepDecoder
+from m2d.model.m2d_modules import CompositionalEmbedder, ConditionalMicroStepDecoder
 
 # apply a monkey patch here
 import transformers.modeling_flash_attention_utils as utils
@@ -41,7 +41,7 @@ class M2DLlama(L.LightningModule):
         )
         # this is a reserved token in the model '<|reserved_special_token_0|>'
         self.micro_stop_token_id = 128002
-        self.micro_step_decoder = MicroStepDecoder(
+        self.micro_step_decoder = ConditionalMicroStepDecoder(
             config=self.model.config, 
             micro_stop_token_id=self.micro_stop_token_id, 
             max_steps=max_steps
@@ -54,6 +54,10 @@ class M2DLlama(L.LightningModule):
         prompt: str, 
         max_gen_len: int = 128
     ) -> str:
+        
+        raise NotImplementedError
+
+        """
         conversation = [{"role": "user", "content": prompt}]
         input_ids = self.tokenizer.apply_chat_template(
             conversation, 
@@ -129,6 +133,7 @@ class M2DLlama(L.LightningModule):
             "token_output": token_output, 
             "micro_token_output": micro_token_output
         }
+        """
 
     def forward(
         self, 
@@ -138,12 +143,14 @@ class M2DLlama(L.LightningModule):
         steps: List[List[int]] 
     ):
         # composition embedding
-        token_embeds, position_ids, comp_seq_lens = self.comp_embedder.forward(
-            input_ids, 
-            seq_lens, 
-            inst_lens, 
-            steps
-        )
+        token_embeds, position_ids, comp_seq_lens, unmerged_embeds \
+            = self.comp_embedder.forward(
+                input_ids, 
+                seq_lens, 
+                inst_lens, 
+                steps, 
+                return_unmerged=True
+            )
 
         # get hidden state of the base llama
         base_output: BaseModelOutputWithPast = self.model.model.forward(
@@ -158,6 +165,7 @@ class M2DLlama(L.LightningModule):
         # micro step decoding [num_of_decodes, max_steps, model_size]
         micro_step_outputs = self.micro_step_decoder.forward(
             hidden_states=hidden_states, 
+            token_embeds=unmerged_embeds, # not sure if we want to use detach here
             comp_seq_lens=comp_seq_lens, 
             inst_lens=inst_lens
         )
