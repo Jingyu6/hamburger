@@ -6,7 +6,6 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
-
 from m2d.model.m2d_modules import CompositionalEmbedder, ConditionalMicroStepDecoder
 
 # apply a monkey patch here
@@ -34,7 +33,6 @@ class M2DLlama(L.LightningModule):
             attn_implementation="flash_attention_2",
             device_map="auto"
         )
-        self.model.train()
         self.comp_embedder = CompositionalEmbedder(
             embedding=self.model.model.embed_tokens, 
             max_steps=max_steps
@@ -47,6 +45,7 @@ class M2DLlama(L.LightningModule):
             max_steps=max_steps
         )
         self.max_steps = max_steps
+        self.train()
 
     @torch.inference_mode
     def generate(
@@ -54,6 +53,8 @@ class M2DLlama(L.LightningModule):
         prompt: str, 
         max_gen_len: int = 128
     ) -> str:
+        self.eval()
+
         conversation = [{"role": "user", "content": prompt}]
         input_ids = self.tokenizer.apply_chat_template(
             conversation, 
@@ -289,8 +290,8 @@ class M2DLlama(L.LightningModule):
                 # smaller learning rate for the main model
                 {"params": self.model.parameters(), 
                     "lr": 1e-5, "weight_decay": 1e-6}, 
-                {"params": [self.comp_embedder.coeffs], 
-                    "lr": 1e-3}, 
+                {"params": self.comp_embedder.coeffs, 
+                    "lr": 5e-3, "weight_decay": 1e-5}, 
                 {"params": self.micro_step_decoder.parameters()}, 
             ], 
             lr=5e-4, 
