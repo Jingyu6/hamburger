@@ -54,10 +54,6 @@ class M2DLlama(L.LightningModule):
         prompt: str, 
         max_gen_len: int = 128
     ) -> str:
-        
-        raise NotImplementedError
-
-        """
         conversation = [{"role": "user", "content": prompt}]
         input_ids = self.tokenizer.apply_chat_template(
             conversation, 
@@ -66,21 +62,21 @@ class M2DLlama(L.LightningModule):
         )["input_ids"][0].to(self.model.device)
 
         # create a cache object
-        past_key_values = DynamicCache()
+        macro_past_key_values = DynamicCache()
 
         seq_len = input_ids.shape[-1]
         output_token_ids = []
         total_len = seq_len
 
-        # main loop
-        for idx in range(max_gen_len):
+        # MACRO STEP
+        for macro_idx in range(max_gen_len):
             token_embeds = self.comp_embedder.single_forward(
                 input_ids=input_ids, 
-                is_prefill=(idx == 0)
+                disable_merge=(macro_idx == 0)
             )[None, ]
 
             position_ids = torch.arange(0, token_embeds.shape[1], device=self.model.device)[None, ]
-            if idx != 0:
+            if macro_idx != 0:
                 # correct position ids
                 position_ids += total_len
 
@@ -89,51 +85,71 @@ class M2DLlama(L.LightningModule):
                 position_ids=position_ids, 
                 use_cache=True, 
                 return_dict=True,
-                past_key_values=past_key_values
+                past_key_values=macro_past_key_values
             )
 
-            # update cache
-            past_key_values = base_output.past_key_values
             # always takes the last one
             hidden_states = base_output.last_hidden_state[:, -1:, :]
 
-            # micro steps
-            micro_step_outputs = self.micro_step_decoder.single_forward(hidden_states)
-            
-            # lm head
-            assert self.model.config.pretraining_tp == 1
-            logits = self.model.lm_head.forward(micro_step_outputs)
-            
-            # greedy tokens
-            pred_token = logits.argmax(dim=-1).view(-1)
-            
-            micro_stop = len(pred_token)
-            for i in range(len(pred_token)):
-                if pred_token[i] == self.micro_stop_token_id:
-                    micro_stop = i
-                    break
-            
-            input_ids = pred_token[:micro_stop]
-            seq_len = micro_stop
-            total_len += seq_len
+            # MICRO STEP
+            # TODO: refactor this to encapsulate everything
+            micro_past_key_values = DynamicCache()
+            hiddens = hidden_states
+            input_ids = []
 
+            for micro_idx in range(self.max_steps):
+                position_embeddings = self.micro_step_decoder.rotary_emb(
+                    hiddens, 
+                    torch.arange(micro_idx, micro_idx + 1)[None, ].to(hiddens.device)
+                )
+                past_seen_tokens = micro_past_key_values.get_seq_length()
+                cache_position = torch.arange(
+                    past_seen_tokens, past_seen_tokens + 1, device=hiddens.device
+                )
+                
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                    out = self.micro_step_decoder.decoder.forward(
+                        hiddens, 
+                        use_cache=True, 
+                        past_key_value=micro_past_key_values,
+                        cache_position=cache_position,  
+                        position_embeddings=position_embeddings, 
+                    )[0]
+                
+                logits = self.model.lm_head.forward(out)
+                pred_token = logits.argmax(dim=-1).view(-1)
+
+                # stop if we hit micro stop
+                if pred_token[0] == self.micro_stop_token_id:
+                    break
+                
+                # update hidden
+                hiddens = self.comp_embedder.single_forward(
+                    input_ids=pred_token, 
+                    disable_merge=True
+                )[None, ]
+
+                # update next macro step values
+                input_ids.append(pred_token)
+
+            input_ids = torch.concat(input_ids).flatten()
+            total_len += len(input_ids)
             output_token_ids.append(input_ids.cpu())
 
             if any(input_ids == self.tokenizer.eos_token_id):
                 break
         
-        output = self.tokenizer.decode(torch.concat(output_token_ids, dim=0))
+        all_token_ids = torch.concat(output_token_ids, dim=0)
+        output = self.tokenizer.decode(all_token_ids)
         micro_token_output = "|".join(self.tokenizer.batch_decode(output_token_ids))
-        token_output = "|".join(self.tokenizer.batch_decode(
-            torch.concat(output_token_ids, dim=0).view(-1)
-        ))
+        token_output = "|".join(self.tokenizer.batch_decode(all_token_ids.view(-1)))
         
         return {
             "output": output, 
             "token_output": token_output, 
-            "micro_token_output": micro_token_output
+            "micro_token_output": micro_token_output, 
+            "speedup": all_token_ids.shape[0] / len(output_token_ids)
         }
-        """
 
     def forward(
         self, 

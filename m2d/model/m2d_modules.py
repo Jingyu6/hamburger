@@ -38,9 +38,9 @@ class CompositionalEmbedder(nn.Module):
     def single_forward(
         self,
         input_ids: torch.Tensor, 
-        is_prefill: bool
+        disable_merge: bool
     ):
-        if is_prefill:
+        if disable_merge:
             return self.embedding.forward(input_ids)
         else:
             return self._merge_fn(self.embedding.forward(input_ids))
@@ -94,100 +94,6 @@ class CompositionalEmbedder(nn.Module):
         return token_embeds, position_ids, comp_seq_lens, unmerged_embeds
 
 
-class MicroStepDecoder(nn.Module):
-    def __init__(
-        self, 
-        config: LlamaConfig, 
-        micro_stop_token_id: int, 
-        max_steps: int
-    ):
-        """
-            Currently we're just using a single transformer decoder layer
-        """
-        super().__init__()
-        self.micro_stop_token_id = micro_stop_token_id
-        self.max_steps = max_steps
-        assert self.max_steps >= 1
-        self.decoder = LlamaDecoderLayer(config=config, layer_idx=0)
-        self.rotary_emb = LlamaRotaryEmbedding(config=config)
-    
-    def single_forward(
-        self,
-        hidden_states: torch.Tensor, # [1, 1, model_size]
-    ):
-        hiddens = hidden_states
-        out = None
-        for idx in range(self.max_steps + 1):
-            position_embeddings = self.rotary_emb(
-                hiddens, 
-                torch.arange(0, idx + 1)[None, ].to(hiddens.device)
-            )
-
-            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                out = self.decoder.forward(
-                    hiddens, 
-                    position_embeddings=position_embeddings, 
-                )[0]
-
-            hiddens = torch.concat(
-                [hiddens, out[:, -1:, :]], 
-                dim=1
-            )
-
-        # [1, max_steps, model_size]
-        return out
-
-    def forward(
-        self, 
-        hidden_states: torch.Tensor, # [1, total_seq_len, model_size]
-        comp_seq_lens: List[int], 
-        inst_lens: List[int]
-    ):
-        """
-            Since we're just doing SFT for now, we just need to
-            figure out how to do micro step decoding
-        """
-
-        # extract macro step hidden
-        macro_step_hiddens = []
-        offset = 0
-        for seq_len, inst_len in zip(comp_seq_lens, inst_lens):
-            macro_step_hiddens.append(
-                hidden_states[0, offset + inst_len - 1: offset + seq_len - 1]
-            )
-            offset += seq_len
-        macro_step_hiddens = torch.concat(macro_step_hiddens, dim=0).unsqueeze(1)
-
-        # micro step decoding
-        hiddens = macro_step_hiddens
-        past_key_values = DynamicCache()
-        out = []
-
-        for idx in range(self.max_steps + 1):
-            position_embeddings = self.rotary_emb(
-                hiddens, 
-                torch.arange(idx, idx + 1)[None, ].to(hiddens.device)
-            )
-
-            past_seen_tokens = past_key_values.get_seq_length()
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + 1, device=hiddens.device
-            )
-
-            hiddens = self.decoder.forward(
-                hiddens, 
-                use_cache=True, 
-                past_key_value=past_key_values,
-                cache_position=cache_position,  
-                position_embeddings=position_embeddings, 
-            )[0]
-
-            out.append(hiddens)
-
-        # [total_seq_len, max_steps, model_size]
-        return torch.concat(out, dim=1)
-
-
 class ConditionalMicroStepDecoder(nn.Module):
     def __init__(
         self, 
@@ -204,7 +110,7 @@ class ConditionalMicroStepDecoder(nn.Module):
         assert self.max_steps >= 1
         self.decoder = LlamaDecoderLayer(config=config, layer_idx=0)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
-        
+
     def forward(
         self, 
         hidden_states: torch.Tensor, # [1, total_seq_len, model_size]
