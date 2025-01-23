@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Callable
 
 import lightning as L
 import torch
-from datasets import load_dataset, load_from_disk
+from datasets import load_dataset, load_from_disk, concatenate_datasets
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -14,12 +14,15 @@ from m2d.data.segmentor import Segmentor
 class M2DDataModule(L.LightningDataModule):
     def __init__(
         self, 
-        save_path: str, 
+        save_path: List[str] | str, 
         test_ratio: float = 0.2, 
         batch_size: int = 8, 
     ):
         super().__init__()
-        self.data = load_from_disk(save_path)
+        if isinstance(save_path, str):
+            self.data = load_from_disk(save_path)
+        else:
+            self.data = concatenate_datasets([load_from_disk(path) for path in save_path])
         self.data = self.data.train_test_split(
             test_size=int(len(self.data) * test_ratio)
         )
