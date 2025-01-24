@@ -11,10 +11,13 @@ L.seed_everything(227)
 model = M2DLlama()
 
 # prepare data
-data_module = M2DDataModule.from_hf_dataset(
-    save_path="./local/openorca", 
-    test_ratio=0.01, 
-    batch_size=2, 
+data_module = M2DDataModule(
+    save_path=[
+        "./local/openorca", 
+        "./local/tinycode"
+    ], 
+    test_ratio=0.005, 
+    batch_size=8, 
 )
 
 # checkpoint callbacks
@@ -44,6 +47,7 @@ trainer = L.Trainer(
     gradient_clip_val=1.0, 
     accumulate_grad_batches=4, 
     num_sanity_val_steps=0, 
+    precision="bf16", 
     callbacks=[
         checkpoint_callback, 
         # lr_monitor_callback
