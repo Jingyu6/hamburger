@@ -42,10 +42,10 @@ wandb_logger = WandbLogger(
 
 # create trainer
 trainer = L.Trainer(
-    strategy="deepspeed_stage_3", 
+    strategy="auto", 
     max_epochs=1, 
     gradient_clip_val=1.0, 
-    accumulate_grad_batches=4, 
+    accumulate_grad_batches=2, 
     num_sanity_val_steps=0, 
     precision="bf16", 
     callbacks=[

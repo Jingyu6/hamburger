@@ -2,15 +2,16 @@ from typing import List
 
 import lightning as L
 import torch
+# apply a monkey patch here
+import transformers.modeling_flash_attention_utils as utils
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
-from m2d.model.m2d_modules import CompositionalEmbedder, ConditionalMicroStepDecoder
 
-# apply a monkey patch here
-import transformers.modeling_flash_attention_utils as utils
 from m2d.model.fa2_monkey_patch import prepare_fa2_from_position_ids
+from m2d.model.m2d_modules import (CompositionalEmbedder,
+                                   ConditionalMicroStepDecoder)
 
 utils.prepare_fa2_from_position_ids = prepare_fa2_from_position_ids
 
@@ -31,7 +32,7 @@ class M2DLlama(L.LightningModule):
             base_model_name, 
             torch_dtype=torch.bfloat16, 
             attn_implementation="flash_attention_2",
-            device_map="auto"
+            # device_map="auto"
         )
         self.comp_embedder = CompositionalEmbedder(
             embedding=self.model.model.embed_tokens, 
