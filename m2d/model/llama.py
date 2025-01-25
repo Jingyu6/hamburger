@@ -2,7 +2,6 @@ from typing import List
 
 import lightning as L
 import torch
-# apply a monkey patch here
 import transformers.modeling_flash_attention_utils as utils
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
@@ -13,6 +12,7 @@ from m2d.model.fa2_monkey_patch import prepare_fa2_from_position_ids
 from m2d.model.m2d_modules import (CompositionalEmbedder,
                                    ConditionalMicroStepDecoder)
 
+# apply a monkey patch here
 utils.prepare_fa2_from_position_ids = prepare_fa2_from_position_ids
 
 
