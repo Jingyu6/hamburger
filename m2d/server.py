@@ -9,10 +9,11 @@ class M2DLitAPI(ls.LitAPI):
             "./local/ckpts/m2d-llama-1B-step=18432.ckpt"
         ).to(device)
 
-    def predict(self, conversation):
+    def predict(self, conversation, context):
         yield self.model.generate(
-            prompt=conversation[0]["content"]
-        )["output"]
+            prompt=conversation[0]["content"], 
+            max_gen_len=context.get("max_completion_tokens", context.get("max_tokens", 128))
+        )["output"][len("<|start_header_id|>assistant<|end_header_id|>\n\n"):]
 
 
 if __name__ == "__main__":
