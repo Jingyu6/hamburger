@@ -1,9 +1,9 @@
 import os
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional
 
 import lightning as L
 import torch
-from datasets import load_dataset, load_from_disk, concatenate_datasets
+from datasets import concatenate_datasets, load_dataset, load_from_disk
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -187,6 +187,18 @@ if __name__ == "__main__":
         tokenizer=tokenizer, 
         inst_name="prompt", 
         resp_name="response", 
+        max_len=8192
+    )
+
+    print(data)
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="teknium/openhermes", 
+        save_path="./local/openhermes", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="instruction", 
+        resp_name="output", 
         max_len=8192
     )
 

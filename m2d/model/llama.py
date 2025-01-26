@@ -59,6 +59,7 @@ class M2DLlama(L.LightningModule):
         conversation = [{"role": "user", "content": prompt}]
         input_ids = self.tokenizer.apply_chat_template(
             conversation, 
+            add_generation_prompt=True, 
             return_tensors='pt', 
             return_dict=True
         )["input_ids"][0].to(self.model.device)

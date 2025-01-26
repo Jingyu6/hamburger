@@ -100,9 +100,10 @@ class Segmentor:
         inst_lens = []
         for inst in instructions:
             conversation = [{"role": "user", "content": inst}]
-            # TODO: not sure if we want to set add_generation_prompt=True
             inst_ids = self.tokenizer.apply_chat_template(
                 conversation, 
+                # this is used to make the model not output the gen prompt
+                add_generation_prompt=True, 
                 return_dict=True
             )["input_ids"]
 
