@@ -6,7 +6,7 @@ L.seed_everything(227)
 
 # create model
 model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "./local/ckpts/m2d-llama-1B-step=13312.ckpt"
+    "./local/ckpts/m2d-llama-1B-step=18432.ckpt"
 )
 
 prompt = """Could you write me a python program doing quick sort?"""

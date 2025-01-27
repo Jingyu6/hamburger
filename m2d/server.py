@@ -10,10 +10,13 @@ class M2DLitAPI(ls.LitAPI):
         ).to(device)
 
     def predict(self, conversation, context):
+        max_gen_len = context.get("max_completion_tokens", None)
+        if max_gen_len is None:
+            max_gen_len = context.get("max_tokens", 128)
         yield self.model.generate(
             prompt=conversation[0]["content"], 
-            max_gen_len=context.get("max_completion_tokens", context.get("max_tokens", 128))
-        )["output"][len("<|start_header_id|>assistant<|end_header_id|>\n\n"):]
+            max_gen_len=max_gen_len,  
+        )["output"]
 
 
 if __name__ == "__main__":
@@ -21,7 +24,6 @@ if __name__ == "__main__":
     server = ls.LitServer(
         api, 
         devices=1, 
-        stream=False, 
         spec=ls.OpenAISpec()
     )
     server.run(port=8000)

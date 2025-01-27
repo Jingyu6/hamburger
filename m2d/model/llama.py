@@ -143,7 +143,7 @@ class M2DLlama(L.LightningModule):
                 break
         
         all_token_ids = torch.concat(output_token_ids, dim=0)
-        output = self.tokenizer.decode(all_token_ids)
+        output = self.tokenizer.decode(all_token_ids, skip_special_tokens=True)
         micro_token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(output_token_ids))
         token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(all_token_ids.view(-1)))
         
