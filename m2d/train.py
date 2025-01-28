@@ -13,8 +13,12 @@ model = M2DLlama()
 # prepare data
 data_module = M2DDataModule(
     save_path=[
+        "./local/tinycode", 
         "./local/openorca", 
-        "./local/tinycode"
+        "./local/openhermes", 
+        "./local/openplatypus",
+        "./local/metamathqa", 
+        "./local/ultrainteract" 
     ], 
     test_ratio=0.005, 
     batch_size=8, 
@@ -61,3 +65,5 @@ trainer.fit(
     model=model, 
     datamodule=data_module
 )
+
+trainer.save_checkpoint("./local/ckpts/m2d-llama-1B-finish")
