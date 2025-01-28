@@ -5,6 +5,7 @@ from m2d.model.llama import M2DLlama
 
 class M2DLitAPI(ls.LitAPI):
     def setup(self, device):
+        print(f"Using device={device}")
         self.model: M2DLlama = M2DLlama.load_from_checkpoint(
             "./local/ckpts/m2d-llama-1B-step=18432.ckpt"
         ).to(device)
@@ -13,8 +14,12 @@ class M2DLitAPI(ls.LitAPI):
         max_gen_len = context.get("max_completion_tokens", None)
         if max_gen_len is None:
             max_gen_len = context.get("max_tokens", 128)
+        prompt = ""
+        for turn in conversation:
+            if turn["role"] in ["system", "user"]:
+                prompt += turn['content']
         yield self.model.generate(
-            prompt=conversation[0]["content"], 
+            prompt=prompt, 
             max_gen_len=max_gen_len,  
         )["output"]
 
