@@ -178,8 +178,6 @@ if __name__ == "__main__":
         max_len=4096
     )
 
-    print(data)
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="nampdn-ai/tiny-codes", 
         save_path="./local/tinycode", 
@@ -189,8 +187,6 @@ if __name__ == "__main__":
         resp_name="response", 
         max_len=8192
     )
-
-    print(data)
 
     data = M2DDataModule.from_hf_dataset(
         dataset_name="teknium/openhermes", 
@@ -202,4 +198,32 @@ if __name__ == "__main__":
         max_len=8192
     )
 
-    print(data)
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="meta-math/MetaMathQA", 
+        save_path="./local/metamathqa", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="original_question", 
+        resp_name="response", 
+        max_len=8192
+    )
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="garage-bAInd/Open-Platypus", 
+        save_path="./local/openplatypus", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="instruction", 
+        resp_name="output", 
+        max_len=8192
+    )
+    
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="openbmb/UltraInteract_sft", 
+        save_path="./local/ultrainteract", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="instruction", 
+        resp_name="response", 
+        max_len=8192
+    )
