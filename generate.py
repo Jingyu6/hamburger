@@ -6,13 +6,14 @@ L.seed_everything(227)
 
 # create model
 model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "./local/ckpts/m2d-llama-1B-step=18432.ckpt"
+    "./local/ckpts/m2d-llama-1B.ckpt"
 )
 
-prompt = """Could you write me a python program doing quick sort?"""
+prompt = """How many 4-letter words with at least one consonant can be constructed from the letters $A$, $B$, $C$, $D$, and $E$? (Note that $B$, $C$, and $D$ are consonants, any word is valid, not just English language words, and letters may be used more than once.)"""
 
 output = model.generate(
     prompt=prompt, 
+    max_gen_len=256
 )
 
 print("================================")

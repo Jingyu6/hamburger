@@ -8,7 +8,9 @@ from m2d.model.llama import M2DLlama
 L.seed_everything(227)
 
 # create model
-model = M2DLlama()
+model = M2DLlama.load_from_checkpoint(
+    "./local/ckpts/m2d-llama-1B-mix.ckpt"
+)
 
 # prepare data
 data_module = M2DDataModule(
@@ -66,4 +68,4 @@ trainer.fit(
     datamodule=data_module
 )
 
-trainer.save_checkpoint("./local/ckpts/m2d-llama-1B-finish")
+trainer.save_checkpoint("./local/ckpts/m2d-llama-1B-finish.ckpt")
