@@ -20,9 +20,9 @@ class M2DDataModule(L.LightningDataModule):
     ):
         super().__init__()
         if isinstance(save_path, str):
-            self.data = load_from_disk(save_path)
+            self.data = load_from_disk(save_path).shuffle()
         else:
-            self.data = concatenate_datasets([load_from_disk(path) for path in save_path])
+            self.data = concatenate_datasets([load_from_disk(path) for path in save_path]).shuffle()
         self.data = self.data.train_test_split(
             test_size=int(len(self.data) * test_ratio)
         )
