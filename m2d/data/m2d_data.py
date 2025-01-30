@@ -203,7 +203,7 @@ if __name__ == "__main__":
         save_path="./local/metamathqa", 
         model=model, 
         tokenizer=tokenizer, 
-        inst_name="original_question", 
+        inst_name="query", 
         resp_name="response", 
         max_len=8192
     )
