@@ -11,14 +11,9 @@ model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
     device_map="auto", 
 )
 
-content = """
-Could you help me generate a json example file? Do not explain. 
-"""
+prompt = """Could you help me generate a json example file? Do not explain. """
 
-conversation = [{
-    "role": "user", 
-    "content": content
-}]
+conversation = [{"role": "user", "content": prompt}]
 inputs = tokenizer.apply_chat_template(
     conversation, 
     return_tensors="pt", 

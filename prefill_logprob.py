@@ -14,14 +14,13 @@ model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
     device_map="auto", 
 )
 
-content = """
-Could you help me generate a json example file? Do not explain. 
-"""
+prompt = """Julie is reading a 120-page book. Yesterday, she was able to read 12 pages and today, she read twice as many pages as yesterday. If she wants to read half of the remaining pages tomorrow, how many pages should she read?"""
+response = """Maila read 12 x 2 = <<12*2=24>>24 pages today. So she was able to read a total of 12 + 24 = <<12+24=36>>36 pages since yesterday. There are 120 - 36 = <<120-36=84>>84 pages left to be read. Since she wants to read half of the remaining pages tomorrow, then she should read 84/2 = <<84/2=42>>42 pages. #### 42"""
 
-conversation = [{
-    "role": "user", 
-    "content": content
-}]
+conversation = [
+    {"role": "user", "content": prompt}, 
+    {"role": "assistant", "content": response}
+]
 inputs = tokenizer.apply_chat_template(
     conversation, 
     return_tensors="pt", 
