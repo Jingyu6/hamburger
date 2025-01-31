@@ -3,7 +3,6 @@ from typing import List
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
-from transformers.cache_utils import DynamicCache
 from transformers.models.llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (LlamaDecoderLayer,
                                                       LlamaRotaryEmbedding)

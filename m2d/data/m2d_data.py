@@ -41,6 +41,7 @@ class M2DDataModule(L.LightningDataModule):
         empty_cache_every: int = 1024, 
         max_len: Optional[int] = None, 
         filter_fn: Optional[Callable] = None, 
+        save_raw: bool = False, 
         **kwargs
     ):
         assert save_path is not None
@@ -93,10 +94,11 @@ class M2DDataModule(L.LightningDataModule):
             if max_len is not None:
                 print(f"Saving the original unfiltered data.")
 
-            processed_data.save_to_disk(
-                save_path + "_unfiltered" if max_len is not None else "", 
-                max_shard_size="1GB"
-            )
+            if max_len is None or save_raw:
+                processed_data.save_to_disk(
+                    save_path + "_unfiltered" if max_len is not None else "", 
+                    max_shard_size="1GB"
+                )
 
             if max_len is not None:
                 print(f"Filter data which are longer than {max_len} tokens.")
@@ -169,6 +171,7 @@ if __name__ == "__main__":
         device_map="auto"
     )
 
+    # datasets
     data = M2DDataModule.from_hf_dataset(
         dataset_name="imone/OpenOrca_FLAN", 
         save_path="./local/openorca", 
@@ -225,5 +228,25 @@ if __name__ == "__main__":
         tokenizer=tokenizer, 
         inst_name="instruction", 
         resp_name="response", 
+        max_len=8192
+    )
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="ise-uiuc/Magicoder-Evol-Instruct-110K", 
+        save_path="./local/magicoder", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="instruction", 
+        resp_name="response", 
+        max_len=8192
+    )
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="Vezora/Tested-143k-Python-Alpaca", 
+        save_path="./local/pythonalpaca", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="instruction", 
+        resp_name="output", 
         max_len=8192
     )
