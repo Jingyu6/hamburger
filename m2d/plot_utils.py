@@ -9,19 +9,19 @@ def plot_entropies(
 ):
     assert len(token_str_list) == len(token_entropy_list)
     token_str_list = [s.replace("\n", "\\n") for s in token_str_list]
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.bar(
+    _, ax = plt.subplots(figsize=(4, 16))
+    ax.barh(
         range(len(token_entropy_list)), 
         token_entropy_list
     )
 
-    ax.set_xticks(
+    ax.set_yticks(
         range(len(token_str_list)), 
         token_str_list, 
-        rotation=90, 
         fontsize=8
     )
-    ax.get_yaxis().set_visible(False)
-    ax.margins()
+    ax.get_xaxis().set_visible(False)
+    ax.invert_yaxis()
+    ax.margins(y=0)
     plt.tight_layout()
     plt.savefig('./local/entropies.png', dpi=400)
