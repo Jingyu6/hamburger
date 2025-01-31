@@ -8,7 +8,7 @@ L.seed_everything(227)
 
 # create model
 m2d_model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "./local/ckpts/m2d-llama-1B-step=13312.ckpt", 
+    "./local/ckpts/m2d-llama-1B-finish.ckpt", 
     map_location='cpu'
 ).to('cuda')
 
