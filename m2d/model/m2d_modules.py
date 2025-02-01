@@ -20,19 +20,19 @@ class CompositionalEmbedder(nn.Module):
         super().__init__()
         self.embedding = embedding
         self.max_steps = max_steps
-        self.coeffs = nn.Parameter(torch.tensor(
-            ([1.0 for _ in range(self.max_steps)]), 
-            dtype=self.embedding.weight.dtype
-        ), requires_grad=True)
+        self.pe = nn.Parameter(
+            torch.empty(
+                (self.max_steps, embedding.weight.shape[-1]), 
+                dtype=self.embedding.weight.dtype
+            ), 
+            requires_grad=True
+        )
+        # TODO: we should try zero init like LoRA
+        torch.nn.init.xavier_normal_(self.pe)
     
-    def _merge_fn(
-        self, 
-        embeddings: torch.Tensor
-    ):
+    def _merge_fn(self, embeddings: torch.Tensor):
         emb_len = embeddings.shape[0]
-        return (
-            torch.softmax(self.coeffs, dim=0)[:emb_len].unsqueeze(-1) * embeddings
-        ).sum(dim=0, keepdim=True)
+        return (embeddings + self.pe[:emb_len]).mean(dim=0, keepdim=True)
 
     def single_forward(
         self,
@@ -40,7 +40,8 @@ class CompositionalEmbedder(nn.Module):
         disable_merge: bool
     ):
         if disable_merge:
-            return self.embedding.forward(input_ids)
+            # TODO: need to refactor this part later
+            return self.embedding.forward(input_ids) + self.pe[:1]
         else:
             return self._merge_fn(self.embedding.forward(input_ids))
 

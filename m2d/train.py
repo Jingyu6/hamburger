@@ -18,7 +18,9 @@ data_module = M2DDataModule(
         "./local/openhermes", 
         "./local/openplatypus",
         "./local/metamathqa", 
-        "./local/ultrainteract" 
+        "./local/ultrainteract", 
+        "./local/magicoder", 
+        "./local/pythonalpaca", 
     ], 
     test_ratio=0.005, 
     batch_size=8, 
