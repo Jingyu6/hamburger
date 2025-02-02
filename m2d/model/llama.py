@@ -291,7 +291,7 @@ class M2DLlama(L.LightningModule):
         optimizer = torch.optim.Adam([
                 # smaller learning rate for the main model
                 {"params": self.model.parameters(), 
-                    "lr": 1e-5, "weight_decay": 1e-6}, 
+                    "lr": 1e-4, "weight_decay": 1e-5}, 
                 {"params": self.comp_embedder.pe}, 
                 {"params": self.micro_step_decoder.parameters()}, 
             ], 

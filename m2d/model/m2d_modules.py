@@ -21,14 +21,12 @@ class CompositionalEmbedder(nn.Module):
         self.embedding = embedding
         self.max_steps = max_steps
         self.pe = nn.Parameter(
-            torch.empty(
+            torch.zeros(
                 (self.max_steps, embedding.weight.shape[-1]), 
                 dtype=self.embedding.weight.dtype
             ), 
             requires_grad=True
         )
-        # TODO: we should try zero init like LoRA
-        torch.nn.init.xavier_normal_(self.pe)
     
     def _merge_fn(self, embeddings: torch.Tensor):
         emb_len = embeddings.shape[0]
