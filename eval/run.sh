@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=0 lm-eval \
     --gen_kwargs temperature=0 \
     --log_samples \
     --limit 256 \
-    --output_path ./local/eval/m2d
+    --output_path ./local/eval/m2d_v3
 } &
 
 # {
