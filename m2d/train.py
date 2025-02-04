@@ -21,6 +21,7 @@ data_module = M2DDataModule(
         "./local/ultrainteract", 
         "./local/magicoder", 
         "./local/pythonalpaca", 
+        "./local/r1distill"
     ], 
     test_ratio=0.005, 
     batch_size=8, 

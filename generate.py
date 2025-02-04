@@ -26,7 +26,7 @@ while True:
     if model == "m2d":
         output = m2d_model.generate(
             prompt=prompt, 
-            max_gen_len=256
+            max_gen_len=1024
         )
 
         print("================================")

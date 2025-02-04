@@ -41,7 +41,10 @@ class M2DDataModule(L.LightningDataModule):
         empty_cache_every: int = 1024, 
         max_len: Optional[int] = None, 
         filter_fn: Optional[Callable] = None, 
+        map_fn: Optional[Callable] = None, 
         save_raw: bool = False, 
+        name: Optional[str] = None, 
+        batch_size: int = 4, 
         **kwargs
     ):
         assert save_path is not None
@@ -62,9 +65,13 @@ class M2DDataModule(L.LightningDataModule):
             segmentor = Segmentor(model=model, tokenizer=tokenizer)
 
             raw_dataset = load_dataset(
-                dataset_name, 
+                dataset_name,
+                name=name,  
                 split="train"
-            )
+            ).shuffle() # Randomize length distribution
+
+            if map_fn is not None:
+                raw_dataset = raw_dataset.map(map_fn, num_proc=8)
 
             if filter_fn is not None:
                 raw_dataset = raw_dataset.filter(filter_fn)
@@ -84,7 +91,7 @@ class M2DDataModule(L.LightningDataModule):
 
             processed_data = raw_dataset.map(
                 process_batch, 
-                batch_size=4, # make sure we dont get OOM
+                batch_size=batch_size, # make sure we dont get OOM
                 batched=True, 
                 num_proc=1, # need to use 1 since we only have 1 model
                 remove_columns=raw_dataset.column_names, 
@@ -249,4 +256,20 @@ if __name__ == "__main__":
         inst_name="instruction", 
         resp_name="output", 
         max_len=8192
+    )
+
+    def _parse_message(example):
+        return {"problem": example["reannotated_messages"][0]["content"]}
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="ServiceNow-AI/R1-Distill-SFT", 
+        name="v1", 
+        save_path="./local/r1distill", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="problem", 
+        resp_name="reannotated_assistant_content", 
+        map_fn=_parse_message, 
+        filter_fn=lambda x: (len(x["problem"]) + len(x["reannotated_assistant_content"])) <= 4096, 
+        batch_size=2 # since its longer
     )
