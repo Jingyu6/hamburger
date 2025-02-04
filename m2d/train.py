@@ -1,5 +1,5 @@
 import lightning as L
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from m2d.data.m2d_data import M2DDataModule
@@ -37,15 +37,13 @@ checkpoint_callback = ModelCheckpoint(
     filename="m2d-llama-1B-{step}",
 )
 
-# lr_monitor_callback = LearningRateMonitor(
-#     logging_interval="step"
-# )
-
 # logger
 wandb_logger = WandbLogger(
     project="m2d", 
     log_model="all"
 )
+
+wandb_logger.watch(model, log="all")
 
 # create trainer
 trainer = L.Trainer(
