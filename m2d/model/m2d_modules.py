@@ -39,7 +39,7 @@ class CompositionalEmbedder(nn.Module):
     ):
         if disable_merge:
             # TODO: need to refactor this part later
-            return self.embedding.forward(input_ids) + self.pe[:1]
+            return self.embedding.forward(input_ids)
         else:
             return self._merge_fn(self.embedding.forward(input_ids))
 
