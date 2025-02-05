@@ -8,13 +8,15 @@ from m2d.model.llama import M2DLlama
 
 L.seed_everything(227)
 
-config = M2DConfig.from_path("./loca/config.yaml")
+config = M2DConfig.from_path("./local/config.yaml")
 config.print_config()
 
 # create model
 if config.ckpt_path is not None:
+    print("Starting from pretrained ckpt...")
     model = M2DLlama.load_from_checkpoint(config.ckpt_path, map_location="cpu")
 else:
+    print("Starting from scratch...")
     model = M2DLlama(base_model_name=config.base_model_name)
 
 # prepare data
@@ -47,13 +49,10 @@ trainer = L.Trainer(
     strategy="auto", 
     max_epochs=1, 
     gradient_clip_val=1.0, 
-    accumulate_grad_batches=2, 
+    accumulate_grad_batches=config.accumulate_grad_batches, 
     num_sanity_val_steps=0, 
     precision="bf16", 
-    callbacks=[
-        checkpoint_callback, 
-        # lr_monitor_callback
-    ], 
+    callbacks=[checkpoint_callback], 
     val_check_interval=512, 
     logger=wandb_logger
 )

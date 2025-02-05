@@ -11,6 +11,7 @@ class M2DConfig:
     ckpt_path: Optional[str] = None
     dataset_names: List[str] = None
     batch_size: int = 8
+    accumulate_grad_batches: int = 2
     test_ratio: float = 0.005
 
     @classmethod
