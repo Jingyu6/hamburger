@@ -2,29 +2,26 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
+from m2d.config import M2DConfig
 from m2d.data.m2d_data import M2DDataModule
 from m2d.model.llama import M2DLlama
 
 L.seed_everything(227)
 
+config = M2DConfig.from_path("./loca/config.yaml")
+config.print_config()
+
 # create model
-model = M2DLlama()
+if config.ckpt_path is not None:
+    model = M2DLlama.load_from_checkpoint(config.ckpt_path, map_location="cpu")
+else:
+    model = M2DLlama()
 
 # prepare data
 data_module = M2DDataModule(
-    save_path=[
-        "./local/tinycode", 
-        "./local/openorca", 
-        "./local/openhermes", 
-        "./local/openplatypus",
-        "./local/metamathqa", 
-        "./local/ultrainteract", 
-        "./local/magicoder", 
-        "./local/pythonalpaca", 
-        "./local/r1distill"
-    ], 
-    test_ratio=0.005, 
-    batch_size=8, 
+    save_path=config.dataset_names, 
+    test_ratio=config.test_ratio, 
+    batch_size=config.batch_size, 
 )
 
 # checkpoint callbacks
