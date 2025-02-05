@@ -103,7 +103,7 @@ class M2DDataModule(L.LightningDataModule):
 
             if max_len is None or save_raw:
                 processed_data.save_to_disk(
-                    save_path + "_unfiltered" if max_len is not None else "", 
+                    save_path + ("_unfiltered" if max_len is not None else ""), 
                     max_shard_size="1GB"
                 )
 
@@ -273,3 +273,47 @@ if __name__ == "__main__":
         filter_fn=lambda x: (len(x["problem"]) + len(x["reannotated_assistant_content"])) <= 4096, 
         batch_size=2 # since its longer
     )
+
+    def _parse_message(example):
+        return {
+            "instruction": example["conversations"][0],
+            "response": example["conversations"][1]
+        }
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="GAIR/lima", 
+        save_path="./local/lima", 
+        model=model, 
+        tokenizer=tokenizer, 
+        map_fn=_parse_message, 
+        batch_size=2 # since its longer
+    )
+    
+    def _parse_message(example):
+        return {
+            "instruction": example["messages"][0]["content"],
+            "response": example["messages"][1]["content"]
+        }
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="allenai/tulu-v2-sft-mixture", 
+        save_path="./local/tulu", 
+        model=model, 
+        tokenizer=tokenizer, 
+        map_fn=_parse_message
+    )
+
+    def _parse_message(example):
+        return {
+            "instruction": example["conversation"][0]["content"],
+            "response": example["conversation"][1]["content"]
+        }
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="lmsys/lmsys-chat-1m", 
+        save_path="./local/lmsys", 
+        model=model, 
+        tokenizer=tokenizer, 
+        map_fn=_parse_message
+    )
+    
