@@ -15,7 +15,7 @@ config.print_config()
 if config.ckpt_path is not None:
     model = M2DLlama.load_from_checkpoint(config.ckpt_path, map_location="cpu")
 else:
-    model = M2DLlama()
+    model = M2DLlama(base_model_name=config.base_model_name)
 
 # prepare data
 data_module = M2DDataModule(
