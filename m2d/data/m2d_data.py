@@ -19,6 +19,8 @@ class M2DDataModule(L.LightningDataModule):
         batch_size: int = 8, 
     ):
         super().__init__()
+        self.save_hyperparameters()
+        
         if isinstance(save_path, str):
             self.data = load_from_disk(save_path).shuffle()
         else:

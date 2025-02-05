@@ -46,7 +46,7 @@ wandb_logger.watch(model, log="all")
 
 # create trainer
 trainer = L.Trainer(
-    strategy="auto", 
+    strategy=config.strategy, 
     max_epochs=1, 
     gradient_clip_val=1.0, 
     accumulate_grad_batches=config.accumulate_grad_batches, 

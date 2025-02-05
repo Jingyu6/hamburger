@@ -10,10 +10,14 @@ class M2DConfig:
     base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct"
     pretrained_ckpt_path: Optional[str] = None
     resume_ckpt_path: Optional[str] = None
+
+    strategy: str = "auto"
+
     dataset_names: List[str] = None
     batch_size: int = 8
-    accumulate_grad_batches: int = 2
     test_ratio: float = 0.005
+
+    accumulate_grad_batches: int = 2
 
     @classmethod
     def from_path(cls, config_path: Optional[str] = None):
