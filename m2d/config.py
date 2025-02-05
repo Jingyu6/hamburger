@@ -8,7 +8,8 @@ import yaml
 @dataclass
 class M2DConfig: 
     base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct"
-    ckpt_path: Optional[str] = None
+    pretrained_ckpt_path: Optional[str] = None
+    resume_ckpt_path: Optional[str] = None
     dataset_names: List[str] = None
     batch_size: int = 8
     accumulate_grad_batches: int = 2

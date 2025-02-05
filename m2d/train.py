@@ -12,9 +12,9 @@ config = M2DConfig.from_path("./local/config.yaml")
 config.print_config()
 
 # create model
-if config.ckpt_path is not None:
+if config.pretrained_ckpt_path is not None:
     print("Starting from pretrained ckpt...")
-    model = M2DLlama.load_from_checkpoint(config.ckpt_path, map_location="cpu")
+    model = M2DLlama.load_from_checkpoint(config.pretrained_ckpt_path, map_location="cpu")
 else:
     print("Starting from scratch...")
     model = M2DLlama(base_model_name=config.base_model_name)
@@ -60,7 +60,8 @@ trainer = L.Trainer(
 # start training
 trainer.fit(
     model=model, 
-    datamodule=data_module
+    datamodule=data_module, 
+    ckpt_path=config.resume_ckpt_path
 )
 
 trainer.save_checkpoint("./local/ckpts/m2d-llama-1B-finish.ckpt")
