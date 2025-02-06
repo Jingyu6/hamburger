@@ -42,7 +42,8 @@ wandb_logger = WandbLogger(
     log_model="all"
 )
 
-wandb_logger.watch(model, log="all")
+# This can take lots of disk space
+# wandb_logger.watch(model, log="all")
 
 # create trainer
 trainer = L.Trainer(

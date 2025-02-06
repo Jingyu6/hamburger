@@ -45,7 +45,7 @@ class M2DDataModule(L.LightningDataModule):
         filter_fn: Optional[Callable] = None, 
         map_fn: Optional[Callable] = None, 
         save_raw: bool = False, 
-        name: Optional[str] = None, 
+        subset: Optional[str] = None, 
         batch_size: int = 4, 
         **kwargs
     ):
@@ -68,7 +68,7 @@ class M2DDataModule(L.LightningDataModule):
 
             raw_dataset = load_dataset(
                 dataset_name,
-                name=name,  
+                name=subset,  
                 split="train"
             ).shuffle() # Randomize length distribution
 
@@ -265,7 +265,7 @@ if __name__ == "__main__":
 
     data = M2DDataModule.from_hf_dataset(
         dataset_name="ServiceNow-AI/R1-Distill-SFT", 
-        name="v1", 
+        subset="v1", 
         save_path="./local/r1distill", 
         model=model, 
         tokenizer=tokenizer, 
@@ -319,3 +319,4 @@ if __name__ == "__main__":
         map_fn=_parse_message
     )
     
+    # https://huggingface.co/datasets/open-thoughts/OpenThoughts-114k?row=0
