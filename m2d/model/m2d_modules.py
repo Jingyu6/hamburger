@@ -39,7 +39,7 @@ class CompositionalEmbedder(nn.Module):
     ):
         if disable_merge:
             # TODO: need to refactor this part later
-            return self.embedding.forward(input_ids)
+            return self.embedding.forward(input_ids) + self.pe[:1]
         else:
             return self._merge_fn(self.embedding.forward(input_ids))
 
@@ -63,7 +63,7 @@ class CompositionalEmbedder(nn.Module):
         for seq_len, inst_len, step in zip(seq_lens, inst_lens, steps):
             cur_seq_len = inst_len
             # instruction
-            result_tokens.append(token_embeds[offset:offset + inst_len])
+            result_tokens.append(token_embeds[offset:offset + inst_len] + self.pe[:1])
             position_ids.extend(range(inst_len))
             # response
             result_tokens.extend([
