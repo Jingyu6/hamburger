@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import lightning as L
 import torch
@@ -52,11 +52,16 @@ class M2DLlama(L.LightningModule):
     def generate(
         self, 
         prompt: str, 
-        max_gen_len: int = 128
+        max_gen_len: int = 128, 
+        system_message: Optional[str] = None
     ) -> str:
         self.eval()
 
-        conversation = [{"role": "user", "content": prompt}]
+        sm = []
+        if system_message is not None:
+            sm = [{"role": "system", "content": system_message}]
+
+        conversation = sm + [{"role": "user", "content": prompt}]
         input_ids = self.tokenizer.apply_chat_template(
             conversation, 
             add_generation_prompt=True, 

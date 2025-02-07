@@ -1,5 +1,5 @@
 from types import MethodType
-from typing import List
+from typing import List, Optional
 
 import torch
 from torch.nn import CrossEntropyLoss
@@ -94,12 +94,17 @@ class Segmentor:
         self, 
         instructions: List[str], 
         responses: List[str], 
+        system_message: Optional[str] = None
     ):
         assert len(instructions) == len(responses)
 
+        sm = []
+        if system_message is not None:
+            sm = [{"role": "system", "content": system_message}]
+
         inst_lens = []
         for inst in instructions:
-            conversation = [{"role": "user", "content": inst}]
+            conversation = sm + [{"role": "user", "content": inst}]
             inst_ids = self.tokenizer.apply_chat_template(
                 conversation, 
                 # this is used to make the model not output the gen prompt
@@ -113,7 +118,7 @@ class Segmentor:
         # batch tokenization
         inputs = self.tokenizer.apply_chat_template(
             [
-                [{"role": "user", "content": inst}, 
+                sm + [{"role": "user", "content": inst}, 
                  {"role": "assistant", "content": resp}]
                 for inst, resp in zip(instructions, responses)
             ], 

@@ -47,6 +47,7 @@ class M2DDataModule(L.LightningDataModule):
         save_raw: bool = False, 
         subset: Optional[str] = None, 
         batch_size: int = 4, 
+        system_message: Optional[str] = None, 
         **kwargs
     ):
         assert save_path is not None
@@ -88,7 +89,8 @@ class M2DDataModule(L.LightningDataModule):
 
                 return segmentor.segment(
                     instructions=batch[inst_name], 
-                    responses=batch[resp_name]
+                    responses=batch[resp_name], 
+                    system_message=system_message
                 )
 
             processed_data = raw_dataset.map(
@@ -273,6 +275,7 @@ if __name__ == "__main__":
         resp_name="reannotated_assistant_content", 
         map_fn=_parse_message, 
         filter_fn=lambda x: (len(x["problem"]) + len(x["reannotated_assistant_content"])) <= 4096, 
+        system_message="You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. ", 
         batch_size=2 # since its longer
     )
 
