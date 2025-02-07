@@ -20,17 +20,20 @@ class CompositionalEmbedder(nn.Module):
         super().__init__()
         self.embedding = embedding
         self.max_steps = max_steps
-        self.pe = nn.Parameter(
-            torch.zeros(
+        self.mask = nn.Parameter(
+            torch.randn(
                 (self.max_steps, embedding.weight.shape[-1]), 
                 dtype=self.embedding.weight.dtype
             ), 
             requires_grad=True
         )
     
+    def _position_encode(self, x, length):
+        return x * torch.sigmoid(self.mask[:length])
+
     def _merge_fn(self, embeddings: torch.Tensor):
         emb_len = embeddings.shape[0]
-        return (embeddings + self.pe[:emb_len]).mean(dim=0, keepdim=True)
+        return self._position_encode(embeddings, emb_len).mean(dim=0, keepdim=True)
 
     def single_forward(
         self,
@@ -39,7 +42,7 @@ class CompositionalEmbedder(nn.Module):
     ):
         if disable_merge:
             # TODO: need to refactor this part later
-            return self.embedding.forward(input_ids) + self.pe[:1]
+            return self._position_encode(self.embedding.forward(input_ids), 1)
         else:
             return self._merge_fn(self.embedding.forward(input_ids))
 
@@ -63,7 +66,7 @@ class CompositionalEmbedder(nn.Module):
         for seq_len, inst_len, step in zip(seq_lens, inst_lens, steps):
             cur_seq_len = inst_len
             # instruction
-            result_tokens.append(token_embeds[offset:offset + inst_len] + self.pe[:1])
+            result_tokens.append(self._position_encode(token_embeds[offset:offset + inst_len], 1))
             position_ids.extend(range(inst_len))
             # response
             result_tokens.extend([

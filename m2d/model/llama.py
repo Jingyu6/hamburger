@@ -295,7 +295,7 @@ class M2DLlama(L.LightningModule):
                 # smaller learning rate for the main model
                 {"params": self.model.parameters(), 
                     "lr": 1e-5, "weight_decay": 1e-6}, 
-                {"params": self.comp_embedder.pe}, 
+                {"params": self.comp_embedder.mask}, 
                 {"params": self.micro_step_decoder.parameters()}, 
             ], 
             lr=5e-4, 
