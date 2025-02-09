@@ -34,7 +34,8 @@ while True:
         output = m2d_model.generate(
             prompt=prompt, 
             max_gen_len=1024, 
-            system_message=system_message if (reason in ["", "yes"]) else None
+            system_message=system_message if (reason in ["", "yes"]) else None, 
+            repetition_penalty=1.2
         )
 
         print("================================")

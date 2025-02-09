@@ -6,6 +6,8 @@ import transformers.modeling_flash_attention_utils as utils
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.cache_utils import DynamicCache
+from transformers.generation.logits_process import \
+    RepetitionPenaltyLogitsProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.model.fa2_monkey_patch import prepare_fa2_from_position_ids
@@ -53,7 +55,8 @@ class M2DLlama(L.LightningModule):
         self, 
         prompt: str, 
         max_gen_len: int = 128, 
-        system_message: Optional[str] = None
+        system_message: Optional[str] = None, 
+        repetition_penalty: Optional[float] = None
     ) -> str:
         self.eval()
 
@@ -69,10 +72,19 @@ class M2DLlama(L.LightningModule):
             return_dict=True
         )["input_ids"][0].to(self.model.device)
 
+        # logits processor
+        logit_processor = None
+        if repetition_penalty is not None:
+            logit_processor = RepetitionPenaltyLogitsProcessor(
+                penalty=repetition_penalty
+            )
+        
         # create a cache object
         macro_past_key_values = DynamicCache()
 
         seq_len = input_ids.shape[-1]
+        # TODO: refactor later
+        history_ids = input_ids.clone()
         output_token_ids = []
         total_len = seq_len
 
@@ -125,6 +137,14 @@ class M2DLlama(L.LightningModule):
                     )[0]
                 
                 logits = self.model.lm_head.forward(out)
+
+                # apply penalty
+                if logit_processor is not None and micro_idx == 0:
+                    logits = logit_processor(
+                        input_ids=history_ids[None, ], 
+                        scores=logits[0],
+                    )
+
                 pred_token = logits.argmax(dim=-1).view(-1)
 
                 # stop if we hit micro stop
@@ -143,6 +163,7 @@ class M2DLlama(L.LightningModule):
             input_ids = torch.concat(input_ids).flatten()
             total_len += len(input_ids)
             output_token_ids.append(input_ids.cpu())
+            history_ids = torch.concat([history_ids, input_ids], dim=-1)
 
             if any(input_ids == self.tokenizer.eos_token_id):
                 break
