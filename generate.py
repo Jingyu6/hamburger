@@ -23,13 +23,14 @@ system_message = "You're a helpful AI assistant, and think carefully before givi
 
 while True:
     model = input("\033[32mWhat model to use [m2d/base]?\033[0m ")
-    while True:
-        reason = input("\033[32mReason mode [yes]/no?\033[0m ")
-        if reason in ["", "yes", "no"]:
-            break
     prompt = input("\033[32mInput:\033[0m\n")
 
     if model == "m2d":
+        while True:
+            reason = input("\033[32mReason mode [yes]/no?\033[0m ")
+            if reason in ["", "yes", "no"]:
+                break
+
         output = m2d_model.generate(
             prompt=prompt, 
             max_gen_len=1024, 
