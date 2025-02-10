@@ -1,4 +1,5 @@
-from typing import List, Optional
+import re
+from typing import List
 
 import lightning as L
 import torch
@@ -10,6 +11,7 @@ from transformers.generation.logits_process import \
     RepetitionPenaltyLogitsProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
+from m2d.config import GenConfig
 from m2d.model.fa2_monkey_patch import prepare_fa2_from_position_ids
 from m2d.model.m2d_modules import (CompositionalEmbedder,
                                    ConditionalMicroStepDecoder)
@@ -54,15 +56,13 @@ class M2DLlama(L.LightningModule):
     def generate(
         self, 
         prompt: str, 
-        max_gen_len: int = 128, 
-        system_message: Optional[str] = None, 
-        repetition_penalty: Optional[float] = None
+        config: GenConfig
     ) -> str:
         self.eval()
 
         sm = []
-        if system_message is not None:
-            sm = [{"role": "system", "content": system_message}]
+        if config.system_message is not None:
+            sm = [{"role": "system", "content": config.system_message}]
 
         conversation = sm + [{"role": "user", "content": prompt}]
         input_ids = self.tokenizer.apply_chat_template(
@@ -74,9 +74,9 @@ class M2DLlama(L.LightningModule):
 
         # logits processor
         logit_processor = None
-        if repetition_penalty is not None:
+        if config.repetition_penalty is not None:
             logit_processor = RepetitionPenaltyLogitsProcessor(
-                penalty=repetition_penalty
+                penalty=config.repetition_penalty
             )
         
         # create a cache object
@@ -89,7 +89,7 @@ class M2DLlama(L.LightningModule):
         total_len = seq_len
 
         # MACRO STEP
-        for macro_idx in range(max_gen_len):
+        for macro_idx in range(config.max_gen_len):
             token_embeds = self.comp_embedder.single_forward(
                 input_ids=input_ids, 
                 disable_merge=(macro_idx == 0)
@@ -168,7 +168,7 @@ class M2DLlama(L.LightningModule):
             if any(input_ids == self.tokenizer.eos_token_id):
                 break
 
-            if total_len >= max_gen_len:
+            if total_len >= config.max_gen_len:
                 break
         
         all_token_ids = torch.concat(output_token_ids, dim=0)
@@ -176,6 +176,10 @@ class M2DLlama(L.LightningModule):
         micro_token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(output_token_ids))
         token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(all_token_ids.view(-1)))
         
+        if config.remove_think:
+            # remove the think block in the output
+            output = re.sub(r"<think>.*?</think>\s*", "", output, flags=re.DOTALL)
+
         return {
             "output": output, 
             "token_output": token_output, 
