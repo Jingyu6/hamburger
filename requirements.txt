@@ -1,3 +1,8 @@
 pytorch-lightning
 deepspeed
 litserve
+lm_eval
+# For IFEval
+langdetect
+immutabledict
+evalplus[vllm]
