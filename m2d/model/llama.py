@@ -98,7 +98,7 @@ class M2DLlama(L.LightningModule):
         total_len = seq_len
 
         # MACRO STEP
-        for macro_idx in range(config.max_gen_len):
+        for macro_idx in range(config.decode_steps):
             token_embeds = self.comp_embedder.single_forward(
                 input_ids=input_ids, 
                 disable_merge=(macro_idx == 0)
@@ -187,7 +187,7 @@ class M2DLlama(L.LightningModule):
         
         if config.remove_think:
             # remove the think block in the output
-            output = re.sub(r"<think>.*?</think>\s*", "", output, flags=re.DOTALL)
+            output = re.sub(r"<think>.*?</think>[\s\r\n]*", "", output, flags=re.DOTALL)
 
         return {
             "output": output, 

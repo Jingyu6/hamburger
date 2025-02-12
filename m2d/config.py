@@ -56,4 +56,9 @@ class GenConfig(_LoadableConfig):
     system_message: Optional[str] = None
     repetition_penalty: Optional[float] = None
     remove_think: bool = False
-    
+    extra_think_steps: int = 512
+
+    @property
+    def decode_steps(self):
+        return self.max_gen_len + self.extra_think_steps \
+            if self.remove_think else self.max_gen_len
