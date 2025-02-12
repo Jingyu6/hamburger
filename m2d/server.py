@@ -21,8 +21,15 @@ class M2DLitAPI(ls.LitAPI):
         if max_gen_len is None:
             max_gen_len = context.get("max_tokens", 128)
         GEN_CONFIG.max_gen_len = max_gen_len
+
+        # filter non essential fields
+        formatted_conversation = [
+            {"role": turn["role"], "content": turn["content"]}
+            for turn in conversation
+        ]
+
         yield self.model.generate(
-            conversation=conversation, 
+            conversation=formatted_conversation, 
             config=GEN_CONFIG
         )["output"]
 
