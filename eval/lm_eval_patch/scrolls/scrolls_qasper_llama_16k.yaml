@@ -1,0 +1,3 @@
+group: scrolls
+task: scrolls_qasper_llama_16k
+class: !function task.QasperLlama16K

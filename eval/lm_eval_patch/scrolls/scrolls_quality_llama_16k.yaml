@@ -1,0 +1,3 @@
+group: scrolls
+task: scrolls_quality_llama_16k
+class: !function task.QuALITYLlama16k
