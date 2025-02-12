@@ -168,7 +168,7 @@ class M2DLlama(L.LightningModule):
             if any(input_ids == self.tokenizer.eos_token_id):
                 break
 
-            if total_len >= config.max_gen_len:
+            if (total_len - seq_len) >= config.max_gen_len:
                 break
         
         all_token_ids = torch.concat(output_token_ids, dim=0)

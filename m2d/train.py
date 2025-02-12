@@ -8,7 +8,7 @@ from m2d.model.llama import M2DLlama
 
 L.seed_everything(227)
 
-config = M2DConfig.from_path("./local/config.yaml")
+config = M2DConfig.from_path("./local/train.yaml")
 config.print_config()
 
 # create model

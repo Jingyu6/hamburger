@@ -1,0 +1,1 @@
+GEN_CONFIG_PATH=./local/gen.yaml python -m m2d.server
