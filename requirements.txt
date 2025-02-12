@@ -1,4 +1,4 @@
-pytorch-lightning
+lightning
 deepspeed
 litserve
 lm_eval
