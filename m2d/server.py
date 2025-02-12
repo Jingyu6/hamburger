@@ -1,7 +1,13 @@
+import os
+
 import litserve as ls
 
+from m2d.config import GenConfig
 from m2d.model.llama import M2DLlama
 
+GEN_CONFIG = GenConfig.from_path(
+    os.environ.get("GEN_CONFIG_PATH", None)
+)
 
 class M2DLitAPI(ls.LitAPI):
     def setup(self, device):
@@ -14,13 +20,14 @@ class M2DLitAPI(ls.LitAPI):
         max_gen_len = context.get("max_completion_tokens", None)
         if max_gen_len is None:
             max_gen_len = context.get("max_tokens", 128)
+        GEN_CONFIG.max_gen_len = max_gen_len
         prompt = ""
         for turn in conversation:
             if turn["role"] in ["system", "user"]:
                 prompt += turn['content']
         yield self.model.generate(
             prompt=prompt, 
-            max_gen_len=max_gen_len,  
+            config=GEN_CONFIG
         )["output"]
 
 

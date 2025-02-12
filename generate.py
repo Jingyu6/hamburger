@@ -20,7 +20,7 @@ base_model = pipeline(
     device_map="cuda"
 )
 
-system_message = "You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. "
+SYS_MSG = "You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. "
 
 while True:
     model = input("\033[32mWhat model to use [m2d/base]?\033[0m ")
@@ -36,7 +36,7 @@ while True:
             prompt=prompt, 
             config=GenConfig(
                 max_gen_len=1024, 
-                system_message=system_message if (reason in ["", "yes"]) else None, 
+                system_message=SYS_MSG if (reason in ["", "yes"]) else None, 
                 repetition_penalty=1.2, 
                 remove_think=(reason in ["", "yes"])
             )
