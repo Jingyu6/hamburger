@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import Dict, List, Optional
 
 import lightning as L
 import torch
@@ -55,16 +55,25 @@ class M2DLlama(L.LightningModule):
     @torch.inference_mode
     def generate(
         self, 
-        prompt: str, 
-        config: GenConfig
+        prompt: Optional[str] = None, 
+        conversation: Optional[List[Dict]] = None, 
+        config: Optional[GenConfig] = None
     ) -> str:
         self.eval()
 
-        sm = []
-        if config.system_message is not None:
-            sm = [{"role": "system", "content": config.system_message}]
+        if config is None:
+            config = GenConfig()
 
-        conversation = sm + [{"role": "user", "content": prompt}]
+        if prompt is not None:
+            conversation = [{"role": "user", "content": prompt}]
+        else:
+            assert conversation is not None
+        
+        if config.system_message is not None:
+            if conversation[0]["role"] == "system":
+                print("Warning: Input already has a system message while attemping to add another one.")
+            conversation = [{"role": "system", "content": config.system_message}] + conversation
+
         input_ids = self.tokenizer.apply_chat_template(
             conversation, 
             add_generation_prompt=True, 

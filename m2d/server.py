@@ -21,12 +21,8 @@ class M2DLitAPI(ls.LitAPI):
         if max_gen_len is None:
             max_gen_len = context.get("max_tokens", 128)
         GEN_CONFIG.max_gen_len = max_gen_len
-        prompt = ""
-        for turn in conversation:
-            if turn["role"] in ["system", "user"]:
-                prompt += turn['content']
         yield self.model.generate(
-            prompt=prompt, 
+            conversation=conversation, 
             config=GEN_CONFIG
         )["output"]
 
