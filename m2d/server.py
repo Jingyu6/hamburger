@@ -3,10 +3,15 @@ import os
 import litserve as ls
 
 from m2d.config import GenConfig
+from m2d.formatter import Formatter
 from m2d.model.llama import M2DLlama
 
 GEN_CONFIG = GenConfig.from_path(
     os.environ.get("GEN_CONFIG_PATH", None)
+)
+
+FORMATTER = Formatter.from_path(
+    os.environ.get("FORMAT_CONFIG_PATH", None)
 )
 
 class M2DLitAPI(ls.LitAPI):
@@ -23,15 +28,25 @@ class M2DLitAPI(ls.LitAPI):
         GEN_CONFIG.max_gen_len = max_gen_len
 
         # filter non essential fields
-        formatted_conversation = [
+        filtered_conversation = [
             {"role": turn["role"], "content": turn["content"]}
             for turn in conversation
         ]
 
-        yield self.model.generate(
+        formatted_conversation = FORMATTER.format_input_conversation(
+            task=context.get("task", ""), 
+            conversation=filtered_conversation
+        )
+
+        raw_output = self.model.generate(
             conversation=formatted_conversation, 
             config=GEN_CONFIG
         )["output"]
+
+        yield FORMATTER.parse_output(
+            task=context.get("task", ""), 
+            output_str=raw_output
+        )
 
 
 if __name__ == "__main__":

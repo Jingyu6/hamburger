@@ -1,6 +1,6 @@
 import json
 from dataclasses import asdict, dataclass, fields
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import yaml
 
@@ -62,3 +62,21 @@ class GenConfig(_LoadableConfig):
     def decode_steps(self):
         return self.max_gen_len + self.extra_think_steps \
             if self.remove_think else self.max_gen_len
+
+
+@dataclass
+class FormatConfig(_LoadableConfig):
+    task_configs: Optional[Dict[str, Dict]] = None
+    _required_keys: List[str] = [
+        "prefix_inst", 
+        "suffix_inst", 
+        "parser_regex"
+    ]
+    
+    def __post_init__(self):
+        if self.task_configs is None:
+            self.task_configs = {}
+        
+        for config in self.task_configs.values():
+            assert all([rk in config for rk in self._required_keys]), \
+                f"Each task requires keys from {self._required_keys}"
