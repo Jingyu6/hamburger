@@ -64,19 +64,20 @@ class GenConfig(_LoadableConfig):
             if self.remove_think else self.max_gen_len
 
 
+_FORMAT_KEYS: List[str] = [
+    "prefix_inst", 
+    "suffix_inst", 
+    "parser_regex"
+]
+
 @dataclass
 class FormatConfig(_LoadableConfig):
     task_configs: Optional[Dict[str, Dict]] = None
-    _required_keys: List[str] = [
-        "prefix_inst", 
-        "suffix_inst", 
-        "parser_regex"
-    ]
     
     def __post_init__(self):
         if self.task_configs is None:
             self.task_configs = {}
         
         for config in self.task_configs.values():
-            assert all([rk in config for rk in self._required_keys]), \
-                f"Each task requires keys from {self._required_keys}"
+            assert all([rk in config for rk in _FORMAT_KEYS]), \
+                f"Each task requires keys from {_FORMAT_KEYS}"

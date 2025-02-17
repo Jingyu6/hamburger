@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -111,10 +111,11 @@ class ConditionalMicroStepDecoder(nn.Module):
         assert self.max_steps >= 1
         self.decoder = LlamaDecoderLayer(config=config, layer_idx=0)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
+        self.feature_layer_indices = [3, 7, 11, 15]
 
     def forward(
         self, 
-        hidden_states: torch.Tensor, # [1, total_seq_len, model_size]
+        hidden_states: Tuple[torch.Tensor], # [1, total_seq_len, model_size]
         token_embeds: List[torch.Tensor], 
         comp_seq_lens: List[int], 
         inst_lens: List[int]
@@ -124,25 +125,34 @@ class ConditionalMicroStepDecoder(nn.Module):
             figure out how to do micro step decoding
         """
 
+        num_features = len(self.feature_layer_indices)
+
         # extract macro step hidden
         macro_step_hiddens = []
-        offset = 0
-        for seq_len, inst_len in zip(comp_seq_lens, inst_lens):
-            macro_step_hiddens.append(
-                hidden_states[0, offset + inst_len - 1: offset + seq_len - 1]
-            )
-            offset += seq_len
-        macro_step_hiddens = torch.concat(macro_step_hiddens, dim=0).unsqueeze(1)
+
+        for layer_idx in self.feature_layer_indices:
+            per_layer_hiddens = []
+            offset = 0
+            for seq_len, inst_len in zip(comp_seq_lens, inst_lens):
+                per_layer_hiddens.append(
+                    hidden_states[layer_idx][0, offset + inst_len - 1: offset + seq_len - 1]
+                )
+                offset += seq_len
+            per_layer_hiddens = torch.concat(per_layer_hiddens, dim=0).unsqueeze(1)
+            macro_step_hiddens.append(per_layer_hiddens)
+
+        # [batched macro step, num of features, model size]
+        macro_step_hiddens = torch.concat(macro_step_hiddens, dim=1)
 
         # pad token embeds
-        token_embeds.append(torch.zeros(self.max_steps, hidden_states.shape[-1]).to(hidden_states.device))
+        token_embeds.append(torch.zeros(self.max_steps, macro_step_hiddens.shape[-1]).to(macro_step_hiddens.device))
         token_embeds = pad_sequence(token_embeds, batch_first=True, padding_value=0)[:-1]
         
         # concate together
         hiddens = torch.concat([macro_step_hiddens, token_embeds], dim=1)
         position_embeddings = self.rotary_emb(
             hiddens, 
-            torch.arange(0, self.max_steps + 1)[None, ].to(hiddens.device)
+            torch.arange(0, self.max_steps + num_features)[None, ].to(hiddens.device)
         )
 
         out = self.decoder.forward(
@@ -151,4 +161,4 @@ class ConditionalMicroStepDecoder(nn.Module):
         )[0]
 
         # [total_seq_len, max_steps, model_size]
-        return out
+        return out[:, num_features - 1:, :]

@@ -218,10 +218,12 @@ class M2DLlama(L.LightningModule):
             inputs_embeds=token_embeds, 
             position_ids=position_ids, 
             use_cache=False, 
+            output_hidden_states=True, 
             return_dict=True, 
         )
 
-        hidden_states = base_output.last_hidden_state
+        # take off the embeddings, number of layers
+        hidden_states = base_output.hidden_states[1:]
 
         # micro step decoding [num_of_decodes, max_steps, model_size]
         micro_step_outputs = self.micro_step_decoder.forward(
