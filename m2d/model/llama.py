@@ -120,9 +120,8 @@ class M2DLlama(L.LightningModule):
 
             # always takes the last one
             hidden_states = torch.concat([
-                layer_hiddens[:, -1:, :] for (layer_idx, layer_hiddens) in \
-                    enumerate(base_output.hidden_states[1:]) \
-                    if layer_idx in self.micro_step_decoder.feature_layer_indices
+                base_output.hidden_states[layer_idx + 1][:, -1:, :]
+                for layer_idx in self.micro_step_decoder.feature_layer_indices
             ], dim=1)
 
             # MICRO STEP
@@ -132,13 +131,17 @@ class M2DLlama(L.LightningModule):
             input_ids = []
 
             for micro_idx in range(self.max_steps):
-                position_embeddings = self.micro_step_decoder.rotary_emb(
-                    hiddens, 
-                    torch.arange(micro_idx, micro_idx + hiddens.shape[1])[None, ].to(hiddens.device)
-                )
                 past_seen_tokens = micro_past_key_values.get_seq_length()
                 cache_position = torch.arange(
                     past_seen_tokens, past_seen_tokens + 1, device=hiddens.device
+                )
+
+                position_embeddings = self.micro_step_decoder.rotary_emb(
+                    hiddens, 
+                    torch.arange(
+                        past_seen_tokens, 
+                        past_seen_tokens + hiddens.shape[1]
+                    )[None, ].to(hiddens.device)
                 )
 
                 with torch.amp.autocast('cuda', dtype=torch.bfloat16):
