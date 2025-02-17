@@ -113,12 +113,17 @@ class M2DLlama(L.LightningModule):
                 inputs_embeds=token_embeds, 
                 position_ids=position_ids, 
                 use_cache=True, 
-                return_dict=True,
+                output_hidden_states=True, 
+                return_dict=True, 
                 past_key_values=macro_past_key_values
             )
 
             # always takes the last one
-            hidden_states = base_output.last_hidden_state[:, -1:, :]
+            hidden_states = torch.concat([
+                layer_hiddens[:, -1:, :] for (layer_idx, layer_hiddens) in \
+                    enumerate(base_output.hidden_states[1:]) \
+                    if layer_idx in self.micro_step_decoder.feature_layer_indices
+            ], dim=1)
 
             # MICRO STEP
             # TODO: refactor this to encapsulate everything
@@ -129,13 +134,13 @@ class M2DLlama(L.LightningModule):
             for micro_idx in range(self.max_steps):
                 position_embeddings = self.micro_step_decoder.rotary_emb(
                     hiddens, 
-                    torch.arange(micro_idx, micro_idx + 1)[None, ].to(hiddens.device)
+                    torch.arange(micro_idx, micro_idx + hiddens.shape[1])[None, ].to(hiddens.device)
                 )
                 past_seen_tokens = micro_past_key_values.get_seq_length()
                 cache_position = torch.arange(
                     past_seen_tokens, past_seen_tokens + 1, device=hiddens.device
                 )
-                
+
                 with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                     out = self.micro_step_decoder.decoder.forward(
                         hiddens, 
@@ -145,7 +150,7 @@ class M2DLlama(L.LightningModule):
                         position_embeddings=position_embeddings, 
                     )[0]
                 
-                logits = self.model.lm_head.forward(out)
+                logits = self.model.lm_head.forward(out[:, -1:, :])
 
                 # apply penalty
                 if logit_processor is not None and micro_idx == 0:
