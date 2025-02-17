@@ -37,10 +37,10 @@ checkpoint_callback = ModelCheckpoint(
 )
 
 # logger
-# wandb_logger = WandbLogger(
-#     project="m2d", 
-#     log_model="all"
-# )
+wandb_logger = WandbLogger(
+    project="m2d", 
+    log_model="all"
+)
 
 # This can take lots of disk space
 # wandb_logger.watch(model, log="all")
@@ -55,7 +55,7 @@ trainer = L.Trainer(
     precision="bf16", 
     callbacks=[checkpoint_callback], 
     val_check_interval=512, 
-    # logger=wandb_logger
+    logger=wandb_logger
 )
 
 # start training
