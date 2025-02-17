@@ -166,9 +166,8 @@ class M2DLlama(L.LightningModule):
                     break
                 
                 # update hidden
-                hiddens = self.comp_embedder.single_forward(
-                    input_ids=pred_token, 
-                    disable_merge=True
+                hiddens = self.comp_embedder.embedding.forward(
+                    pred_token
                 )[None, ]
 
                 # update next macro step values
