@@ -116,7 +116,10 @@ class ConditionalMicroStepDecoder(nn.Module):
         self.micro_stop_token_id = micro_stop_token_id
         self.max_steps = max_steps
         assert self.max_steps >= 1
-        self.decoder = LlamaDecoderLayer(config=config, layer_idx=0)
+        self.num_layers = 2
+        self.decoders = nn.ModuleList([
+            LlamaDecoderLayer(config=config, layer_idx=layer_idx) 
+            for layer_idx in range(len(self.num_layers))])
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.feature_layer_indices = [3, 7, 11, 15]
 
@@ -157,15 +160,15 @@ class ConditionalMicroStepDecoder(nn.Module):
         
         # concate together
         hiddens = torch.concat([macro_step_hiddens, token_embeds], dim=1)
-        position_embeddings = self.rotary_emb(
-            hiddens, 
-            torch.arange(0, self.max_steps + num_features)[None, ].to(hiddens.device)
-        )
+        position_ids = torch.arange(0, self.max_steps + num_features)[None, ].to(hiddens.device)
 
-        out = self.decoder.forward(
-            hiddens, 
-            position_embeddings=position_embeddings, 
-        )[0]
+        for decoder_layer in self.decoders:
+            position_embeddings = self.rotary_emb(hiddens, position_ids)
+
+            hiddens = decoder_layer.forward(
+                hiddens, 
+                position_embeddings=position_embeddings, 
+            )[0]
 
         # [total_seq_len, max_steps, model_size]
-        return out[:, num_features - 1:, :]
+        return hiddens[:, num_features - 1:, :]

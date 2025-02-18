@@ -136,24 +136,27 @@ class M2DLlama(L.LightningModule):
                     past_seen_tokens, past_seen_tokens + 1, device=hiddens.device
                 )
 
-                position_embeddings = self.micro_step_decoder.rotary_emb(
-                    hiddens, 
-                    torch.arange(
-                        past_seen_tokens, 
-                        past_seen_tokens + hiddens.shape[1]
-                    )[None, ].to(hiddens.device)
-                )
+                position_ids = torch.arange(
+                    past_seen_tokens, 
+                    past_seen_tokens + hiddens.shape[1]
+                )[None, ].to(hiddens.device)
 
-                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                    out = self.micro_step_decoder.decoder.forward(
+                for decoder_layer in self.micro_step_decoder.decoders:
+                    position_embeddings = self.micro_step_decoder.rotary_emb(
                         hiddens, 
-                        use_cache=True, 
-                        past_key_value=micro_past_key_values,
-                        cache_position=cache_position,  
-                        position_embeddings=position_embeddings, 
-                    )[0]
+                        position_ids
+                    )
+
+                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                        hiddens = decoder_layer.forward(
+                            hiddens, 
+                            use_cache=True, 
+                            past_key_value=micro_past_key_values,
+                            cache_position=cache_position,  
+                            position_embeddings=position_embeddings, 
+                        )[0]
                 
-                logits = self.model.lm_head.forward(out[:, -1:, :])
+                logits = self.model.lm_head.forward(hiddens[:, -1:, :])
 
                 # apply penalty
                 if logit_processor is not None and micro_idx == 0:
