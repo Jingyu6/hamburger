@@ -119,7 +119,7 @@ class ConditionalMicroStepDecoder(nn.Module):
         self.num_layers = 2
         self.decoders = nn.ModuleList([
             LlamaDecoderLayer(config=config, layer_idx=layer_idx) 
-            for layer_idx in range(len(self.num_layers))])
+            for layer_idx in range(self.num_layers)])
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.feature_layer_indices = [3, 7, 11, 15]
 
