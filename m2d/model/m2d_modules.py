@@ -20,31 +20,38 @@ class CompositionalEmbedder(nn.Module):
         super().__init__()
         self.embedding = embedding
         self.max_steps = max_steps
-        self.mask = nn.Parameter(
-            torch.randn(
-                (self.max_steps, embedding.weight.shape[-1]), 
-                dtype=self.embedding.weight.dtype
-            ), 
+        
+        self.gate = nn.Linear(
+            in_features=embedding.weight.shape[-1], 
+            out_features=embedding.weight.shape[-1], 
+            dtype=self.embedding.weight.dtype
+        )
+
+        self.pos_weight = nn.Parameter(
+            torch.ones((self.max_steps, ), dtype=self.embedding.weight.dtype), 
             requires_grad=True
         )
-    
-    def _position_encode(self, x, length):
-        return x * torch.sigmoid(self.mask[:length])
 
     def _merge_fn(self, embeddings: torch.Tensor):
         emb_len = embeddings.shape[0]
-        return self._position_encode(embeddings, emb_len).mean(dim=0, keepdim=True)
+        if emb_len == 1:
+            # we dont do merging
+            return embeddings
+        # apply gating
+        gates = torch.sigmoid(self.gate.forward(embeddings))
+        embeddings = gates * embeddings
+        # apply position info
+        return (embeddings * self.pos_weight[:emb_len].unsqueeze(-1)).mean(dim=0, keepdim=True)
 
     def single_forward(
         self,
         input_ids: torch.Tensor, 
         disable_merge: bool
     ):
-        if disable_merge:
-            # TODO: need to refactor this part later
-            return self._position_encode(self.embedding.forward(input_ids), 1)
-        else:
-            return self._merge_fn(self.embedding.forward(input_ids))
+        embeddings = self.embedding.forward(input_ids)
+        if not disable_merge:
+            embeddings = self._merge_fn(embeddings)
+        return embeddings
 
     def forward(
         self, 
@@ -66,7 +73,7 @@ class CompositionalEmbedder(nn.Module):
         for seq_len, inst_len, step in zip(seq_lens, inst_lens, steps):
             cur_seq_len = inst_len
             # instruction
-            result_tokens.append(self._position_encode(token_embeds[offset:offset + inst_len], 1))
+            result_tokens.append(token_embeds[offset:offset + inst_len])
             position_ids.extend(range(inst_len))
             # response
             result_tokens.extend([
