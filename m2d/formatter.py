@@ -36,13 +36,14 @@ class Formatter:
     ) -> str:
         task_config = self.format_config.task_configs.get(task, None)
         # only applies on the last user input
-        for turn_idx in reversed(range(len(conversation))):
-            if conversation[turn_idx]["role"] == "user":
-                conversation[turn_idx]["content"] = \
-                    task_config.get("prefix_inst", "") + \
-                    conversation[turn_idx]["content"] + \
-                    task_config.get("suffix_inst", "")
-                break
+        if task_config:
+            for turn_idx in reversed(range(len(conversation))):
+                if conversation[turn_idx]["role"] == "user":
+                    conversation[turn_idx]["content"] = \
+                        task_config.get("prefix_inst", "") + \
+                        conversation[turn_idx]["content"] + \
+                        task_config.get("suffix_inst", "")
+                    break
         return conversation
 
     def parse_output(

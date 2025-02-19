@@ -1,16 +1,14 @@
 # Long Context
-# {
-# CUDA_VISIBLE_DEVICES=0 lm-eval \
-#     --model local-chat-completions \
-#     --model_args model=m2d,base_url=http://127.0.0.1:8000/v1/chat/completions \
-#     --apply_chat_template \
-#     --device cuda \
-#     --batch_size 1 \
-#     --tasks scrolls_narrativeqa_llama_16k,scrolls_govreport_llama_16k \
-#     --gen_kwargs temperature=0 \
-#     --log_samples \
-#     --output_path ./local/eval/m2d/long_context
-# }&
+CUDA_VISIBLE_DEVICES=0 lm-eval \
+    --model local-chat-completions \
+    --model_args model=m2d,base_url=http://127.0.0.1:8000/v1/chat/completions \
+    --apply_chat_template \
+    --device cuda \
+    --batch_size 1 \
+    --tasks scrolls_narrativeqa_llama_16k,scrolls_govreport_llama_16k \
+    --gen_kwargs temperature=0 \
+    --log_samples \
+    --output_path ./local/eval/m2d/long_context
 
 # # General
 # {
