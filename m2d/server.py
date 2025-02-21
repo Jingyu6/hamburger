@@ -50,6 +50,11 @@ class M2DLitAPI(ls.LitAPI):
 
 
 if __name__ == "__main__":
+    print(f"Using generation config: ")
+    GEN_CONFIG.print_config()
+    print(f"Using formatting config:")
+    FORMATTER.format_config.print_config()
+
     api = M2DLitAPI()
     server = ls.LitServer(
         api, 

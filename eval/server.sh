@@ -1,1 +1,1 @@
-GEN_CONFIG_PATH=./local/gen.yaml python -m m2d.server
+GEN_CONFIG_PATH=./local/gen.yaml FORMAT_CONFIG_PATH=./local/format.yaml python -m m2d.server
