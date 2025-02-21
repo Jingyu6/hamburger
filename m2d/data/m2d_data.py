@@ -322,4 +322,12 @@ if __name__ == "__main__":
         map_fn=_parse_message
     )
     
-    # https://huggingface.co/datasets/open-thoughts/OpenThoughts-114k?row=0
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="open-r1/OpenR1-Math-220k", 
+        save_path="./local/openr1math", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="problem", 
+        resp_name="solution", 
+        max_len=8192, 
+    )
