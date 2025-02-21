@@ -67,7 +67,8 @@ class GenConfig(_LoadableConfig):
 _FORMAT_KEYS: List[str] = [
     "prefix_inst", 
     "suffix_inst", 
-    "parser_regex"
+    "parser_regex", 
+    "output_format"
 ]
 
 @dataclass
@@ -79,5 +80,5 @@ class FormatConfig(_LoadableConfig):
             self.task_configs = {}
         
         for config in self.task_configs.values():
-            assert all([rk in config for rk in _FORMAT_KEYS]), \
+            assert all([(key in _FORMAT_KEYS) for key in config.keys()]), \
                 f"Each task requires keys from {_FORMAT_KEYS}"

@@ -46,15 +46,18 @@ class Formatter:
                     break
         return conversation
 
-    def parse_output(
+    def format_output(
         self, 
         task: str,
         output_str: str, 
     ) -> str:
         task_config = self.format_config.task_configs.get(task, None)
-        if task_config and "parse_regex" in task_config:
-            match = re.search(task_config["parse_regex"], output_str)
-            if match:
-                output_str = match.group()
+        if task_config is not None: 
+            if "parse_regex" in task_config:
+                match = re.search(task_config["parse_regex"], output_str)
+                if match:
+                    output_str = match.group()
+            if "output_format" in task_config:
+                output_str = task_config["output_format"].format(output=output_str)
 
         return output_str
