@@ -346,3 +346,15 @@ if __name__ == "__main__":
         ),  
         max_len=8192   
     )
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="facebook/natural_reasoning", 
+        save_path="./local/naturalreasoning", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="question", 
+        resp_name="output", 
+        map_fn=lambda sample: {"output": sample["responses"][0]["response"]}, 
+        max_len=8192   
+    )
+    
