@@ -331,3 +331,18 @@ if __name__ == "__main__":
         resp_name="solution", 
         max_len=8192, 
     )
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="PrimeIntellect/SYNTHETIC-1", 
+        save_path="./local/synthetic1", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="prompt", 
+        resp_name="llm_response", 
+        system_message="You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. ", 
+        filter_fn=lambda sample: (
+            sample.get("score", None) == 1 and \
+            (len(sample["prompt"]) + len(sample["llm_response"])) <= 8192
+        ),  
+        max_len=8192   
+    )
