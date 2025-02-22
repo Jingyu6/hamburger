@@ -1,3 +1,5 @@
+import os
+
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
@@ -7,6 +9,9 @@ from m2d.data.m2d_data import M2DDataModule
 from m2d.model.llama import M2DLlama
 
 L.seed_everything(227)
+
+# make sure the huge cache file is not in /home
+os.environ["WANDB_CACHE_DIR"] = "/data/data_persistent1/jingyu/wandb_cache"
 
 config = M2DConfig.from_path("./local/train.yaml")
 config.print_config()
@@ -32,7 +37,7 @@ checkpoint_callback = ModelCheckpoint(
     monitor="step",
     mode="max",
     every_n_train_steps=1024, 
-    dirpath="./local/ckpts",
+    dirpath="/data/data_persistent1/jingyu/m2d/ckpts",
     filename="m2d-llama-1B-{step}",
 )
 
@@ -65,4 +70,4 @@ trainer.fit(
     ckpt_path=config.resume_ckpt_path
 )
 
-trainer.save_checkpoint("./local/ckpts/m2d-llama-1B-finish.ckpt")
+trainer.save_checkpoint("/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-finish.ckpt")
