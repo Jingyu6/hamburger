@@ -344,13 +344,17 @@ class M2DLlama(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam([
                 # smaller learning rate for the main model
-                {"params": self.model.parameters(), 
+                {"params": self.model.model.embed_tokens.parameters(), 
                     "lr": 1e-5, "weight_decay": 1e-6}, 
+                # slightly larger lr for the embedding and lm head (tied)
+                {"params": [p for n, p in self.model.named_parameters() if "embed_tokens" not in n], 
+                    "lr": 3e-5, "weight_decay": 1e-6}, 
+                # larger lr for grafted modules
                 {"params": self.comp_embedder.gate.parameters()}, 
                 {"params": self.comp_embedder.pos_weight}, 
                 {"params": self.micro_step_decoder.parameters()}, 
             ], 
-            lr=5e-4, 
+            lr=1e-4, 
             weight_decay=1e-5
         )
 
