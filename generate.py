@@ -37,7 +37,7 @@ while True:
             config=GenConfig(
                 max_gen_len=1024, 
                 system_message=SYS_MSG if (reason in ["", "yes"]) else None, 
-                repetition_penalty=1.2, 
+                # repetition_penalty=1.2, 
                 remove_think=(reason in ["", "yes"])
             )
         )
