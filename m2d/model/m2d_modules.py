@@ -20,16 +20,19 @@ class CompositionalEmbedder(nn.Module):
         super().__init__()
         self.embedding = embedding
         self.max_steps = max_steps
-        
+        self.emb_size = embedding.weight.shape[-1]
+        self.emb_dtype = self.embedding.weight.dtype
+
         self.gate = nn.Linear(
-            in_features=embedding.weight.shape[-1], 
-            out_features=embedding.weight.shape[-1], 
-            dtype=self.embedding.weight.dtype
+            in_features=self.emb_size, 
+            out_features=self.emb_size, 
+            dtype=self.emb_dtype
         )
 
-        self.pos_weight = nn.Parameter(
-            torch.ones((self.max_steps, ), dtype=self.embedding.weight.dtype), 
-            requires_grad=True
+        self.pos_weight = nn.Linear(
+            in_features=self.emb_size * self.max_steps, 
+            out_features=self.max_steps, 
+            dtype=self.emb_dtype
         )
 
     def _merge_fn(self, embeddings: torch.Tensor):
@@ -41,7 +44,12 @@ class CompositionalEmbedder(nn.Module):
         gates = torch.sigmoid(self.gate.forward(embeddings))
         embeddings = gates * embeddings
         # apply position info
-        return (embeddings * self.pos_weight[:emb_len].unsqueeze(-1)).mean(dim=0, keepdim=True)
+        pad_embeddings = torch.zeros((self.max_steps - emb_len, self.emb_size), dtype=self.emb_dtype).to(embeddings.device)
+        pos_weights = self.pos_weight.forward(
+            torch.concat([embeddings, pad_embeddings], dim=0).view(-1)
+        )[:emb_len].unsqueeze(-1)
+
+        return (embeddings * pos_weights).mean(dim=0, keepdim=True)
 
     def single_forward(
         self,
