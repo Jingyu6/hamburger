@@ -358,3 +358,12 @@ if __name__ == "__main__":
         max_len=8192   
     )
     
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="argilla/ifeval-like-data", 
+        save_path="./local/ifevallike", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="prompt", 
+        resp_name="response", 
+        subset="filtered"
+    )
