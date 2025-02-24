@@ -351,7 +351,7 @@ class M2DLlama(L.LightningModule):
                     "lr": 3e-5, "weight_decay": 1e-6}, 
                 # larger lr for grafted modules
                 {"params": self.comp_embedder.gate.parameters()}, 
-                {"params": self.comp_embedder.pos_weight.parameters(), 
+                {"params": self.comp_embedder.pos_weight, 
                     "lr": 5e-4}, 
                 {"params": self.micro_step_decoder.parameters()}, 
             ], 
