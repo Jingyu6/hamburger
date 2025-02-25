@@ -20,6 +20,8 @@ base_model = pipeline(
     device_map="cuda"
 )
 
+MAX_GEN_LEN = 1024
+
 SYS_MSG = "You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. "
 
 while True:
@@ -35,7 +37,7 @@ while True:
         output = m2d_model.generate(
             prompt=prompt, 
             config=GenConfig(
-                max_gen_len=1024, 
+                max_gen_len=MAX_GEN_LEN, 
                 system_message=SYS_MSG if (reason in ["", "yes"]) else None, 
                 # repetition_penalty=1.2, 
                 remove_think=(reason in ["", "yes"])
@@ -54,7 +56,7 @@ while True:
     elif model == "base":
         output = base_model(
             [{"role": "user", "content": prompt}], 
-            max_new_tokens=256
+            max_new_tokens=MAX_GEN_LEN
         )
 
         print("================================")
