@@ -164,6 +164,13 @@ class M2DDataModule(L.LightningDataModule):
             macro_steps += len(steps)
         print(f"Approximate decoding speedup: {(micro_steps / macro_steps) * 100:.2f}%")
 
+    def get_output_token_count(self):
+        token_cnt = 0
+        for s in tqdm(self.data['train']):
+            token_cnt += (len(s["input_ids"]) - s["inst_lens"])
+        print(f"Total number of training tokens: {token_cnt}.")
+
+
 if __name__ == "__main__":
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
