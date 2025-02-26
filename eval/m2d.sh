@@ -74,3 +74,19 @@ CUDA_VISIBLE_DEVICES=3 lm-eval \
     --gen_kwargs temperature=0 \
     --log_samples \
     --output_path ./local/eval/m2d/reasoning
+
+evalplus.evaluate \
+    --model "m2d" \
+    --dataset humaneval \
+    --backend openai \
+    --greedy \
+    --base-url http://127.0.0.1:8000/v1 \
+    --root ./local/eval/m2d/code
+
+evalplus.evaluate \
+    --model "m2d" \
+    --dataset mbpp \
+    --backend openai \
+    --greedy \
+    --base-url http://127.0.0.1:8000/v1 \
+    --root ./local/eval/m2d/code

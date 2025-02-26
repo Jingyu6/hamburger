@@ -374,3 +374,20 @@ if __name__ == "__main__":
         resp_name="response", 
         subset="filtered"
     )
+
+    def _parse_message(example):
+        return {
+            "instruction": example["conversations"][0]["value"],
+            "response": example["conversations"][1]["value"]
+        }
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="open-thoughts/OpenThoughts-114k", 
+        save_path="./local/openthoughts", 
+        model=model, 
+        tokenizer=tokenizer, 
+        map_fn=_parse_message, 
+        inst_name="instruction", 
+        resp_name="response", 
+        batch_size=1 # since its longer
+    )
