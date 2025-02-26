@@ -340,24 +340,19 @@ class M2DLlama(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW([
                 # smaller learning rate for the main model
-                {"params": self.model.model.embed_tokens.parameters(), 
-                    "lr": 1e-5, "weight_decay": 1e-6}, 
+                {"params": self.model.model.embed_tokens.parameters(), "lr": 1e-5}, 
                 # slightly larger lr for the embedding and lm head (tied)
-                {"params": [p for n, p in self.model.named_parameters() if "embed_tokens" not in n], 
-                    "lr": 3e-5, "weight_decay": 1e-6}, 
+                {"params": [p for n, p in self.model.named_parameters() if "embed_tokens" not in n], "lr": 3e-5}, 
                 # larger lr for grafted modules
                 {"params": self.comp_embedder.gate.parameters()}, 
-                {"params": self.comp_embedder.pos_weight.parameters(), 
-                    "lr": 5e-4}, 
+                {"params": self.comp_embedder.pos_weight.parameters(), "lr": 5e-4}, 
                 {"params": self.micro_step_decoder.parameters()}, 
-            ], 
-            lr=1e-4, 
-            weight_decay=1e-5
+            ], lr=1e-4
         )
 
         total_steps = self.trainer.estimated_stepping_batches
         warmup_steps = int(0.0 * total_steps)
-        stable_steps = int(0.8 * total_steps)
+        stable_steps = int(0.7 * total_steps)
         decay_steps = total_steps - warmup_steps - stable_steps
 
         def lr_lambda_wsd(step):
