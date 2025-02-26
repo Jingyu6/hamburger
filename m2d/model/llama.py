@@ -133,7 +133,7 @@ class M2DLlama(L.LightningModule):
             for micro_idx in range(self.max_steps):
                 past_seen_tokens = micro_past_key_values.get_seq_length()
                 cache_position = torch.arange(
-                    past_seen_tokens, past_seen_tokens + 1, device=hiddens.device
+                    past_seen_tokens, past_seen_tokens + hiddens.shape[1], device=hiddens.device
                 )
 
                 position_ids = torch.arange(
