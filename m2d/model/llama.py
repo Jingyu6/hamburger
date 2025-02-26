@@ -135,11 +135,7 @@ class M2DLlama(L.LightningModule):
                 cache_position = torch.arange(
                     past_seen_tokens, past_seen_tokens + hiddens.shape[1], device=hiddens.device
                 )
-
-                position_ids = torch.arange(
-                    past_seen_tokens, 
-                    past_seen_tokens + hiddens.shape[1]
-                )[None, ].to(hiddens.device)
+                position_ids = cache_position.unsqueeze(0)
 
                 for decoder_layer in self.micro_step_decoder.decoders:
                     position_embeddings = self.micro_step_decoder.rotary_emb(
@@ -181,7 +177,7 @@ class M2DLlama(L.LightningModule):
 
             input_ids = torch.concat(input_ids).flatten()
             total_len += len(input_ids)
-            output_token_ids.append(input_ids.cpu())
+            output_token_ids.append(input_ids)
             history_ids = torch.concat([history_ids, input_ids], dim=-1)
 
             if any(input_ids == self.tokenizer.eos_token_id):
@@ -190,7 +186,7 @@ class M2DLlama(L.LightningModule):
             if (total_len - seq_len) >= config.max_gen_len:
                 break
         
-        all_token_ids = torch.concat(output_token_ids, dim=0)
+        all_token_ids = torch.concat(output_token_ids, dim=0).cpu()
         output = self.tokenizer.decode(all_token_ids, skip_special_tokens=True)
         micro_token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(output_token_ids))
         token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(all_token_ids.view(-1)))
