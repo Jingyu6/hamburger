@@ -46,6 +46,7 @@ class M2DDataModule(L.LightningDataModule):
         map_fn: Optional[Callable] = None, 
         save_raw: bool = False, 
         subset: Optional[str] = None, 
+        split: str = "train", 
         batch_size: int = 4, 
         system_message: Optional[str] = None, 
         **kwargs
@@ -70,7 +71,7 @@ class M2DDataModule(L.LightningDataModule):
             raw_dataset = load_dataset(
                 dataset_name,
                 name=subset,  
-                split="train"
+                split=split
             ).shuffle() # Randomize length distribution
 
             if map_fn is not None:
@@ -390,4 +391,23 @@ if __name__ == "__main__":
         inst_name="instruction", 
         resp_name="response", 
         batch_size=1 # since its longer
+    )
+
+    # Data for testing purpose
+    def _parse_message(example):
+        return {
+            "instruction": "Please provide a self-contained Python script that solves the following problem in a markdown code block:\n```python\n{prompt}\n```".format(prompt=example["prompt"]),
+            "response": example["prompt"] + example["canonical_solution"]
+        }
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="bigcode/humanevalpack", 
+        save_path="./local/humaneval", 
+        model=model, 
+        tokenizer=tokenizer, 
+        map_fn=_parse_message, 
+        inst_name="instruction", 
+        resp_name="response", 
+        subset="python", 
+        split="test"
     )
