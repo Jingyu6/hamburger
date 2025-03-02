@@ -383,31 +383,47 @@ if __name__ == "__main__":
         }
 
     data = M2DDataModule.from_hf_dataset(
-        dataset_name="open-thoughts/OpenThoughts-114k", 
+        dataset_name="open-r1/OpenThoughts-114k-math", 
         save_path="./local/openthoughts", 
         model=model, 
         tokenizer=tokenizer, 
         map_fn=_parse_message, 
-        inst_name="instruction", 
-        resp_name="response", 
-        batch_size=1 # since its longer
+        inst_name="problem", 
+        resp_name="solution", 
+        batch_size=1, # since its longer
+        max_len=8192
     )
 
-    # Data for testing purpose
     def _parse_message(example):
         return {
-            "instruction": "Please provide a self-contained Python script that solves the following problem in a markdown code block:\n```python\n{prompt}\n```".format(prompt=example["prompt"]),
-            "response": example["prompt"] + example["canonical_solution"]
+            "prompt": "Write python code to solve the following coding question:\n{question}\n".format(question=example["question"]),
+            "response": "```python\n{code}\n```".format(code=example["solutions"][0])
         }
 
     data = M2DDataModule.from_hf_dataset(
-        dataset_name="bigcode/humanevalpack", 
-        save_path="./local/humaneval", 
+        dataset_name="codeparrot/apps", 
+        save_path="./local/apps", 
+        model=model, 
+        tokenizer=tokenizer, 
+        inst_name="prompt", 
+        resp_name="response", 
+        map_fn=_parse_message, 
+        max_len=8192
+    )
+
+    def _parse_message(example):
+        return {
+            "instruction": example["conversations"][0]["value"],
+            "response": example["conversations"][1]["value"]
+        }
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="BAAI/Infinity-Instruct", 
+        save_path="./local/infinityinstruct", 
         model=model, 
         tokenizer=tokenizer, 
         map_fn=_parse_message, 
-        inst_name="instruction", 
-        resp_name="response", 
-        subset="python", 
-        split="test"
+        filter_fn=lambda sample: len(sample["instruction"]) + len(sample["response"]) < (8192 * 4), 
+        max_len=8192, 
+        subset="Gen"
     )
