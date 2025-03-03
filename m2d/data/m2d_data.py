@@ -49,6 +49,7 @@ class M2DDataModule(L.LightningDataModule):
         split: str = "train", 
         batch_size: int = 4, 
         system_message: Optional[str] = None, 
+        save_entropy: bool = False, 
         **kwargs
     ):
         assert save_path is not None
@@ -91,7 +92,8 @@ class M2DDataModule(L.LightningDataModule):
                 return segmentor.segment(
                     instructions=batch[inst_name], 
                     responses=batch[resp_name], 
-                    system_message=system_message
+                    system_message=system_message, 
+                    save_entropy=save_entropy
                 )
 
             processed_data = raw_dataset.map(
