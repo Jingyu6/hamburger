@@ -77,17 +77,18 @@ class Segmentor:
     def __init__(
         self, 
         model, 
-        tokenizer
+        tokenizer, 
+        strategy
     ):
         self.model = model
         self.tokenizer = tokenizer
         self.model.prefill = MethodType(_prefill, self.model)
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_steps = 4
-        self.strategy = STRATEGIES["decreasing_v2"]
+        self.step_strategy = STRATEGIES[strategy]
 
     def _calc_steps(self, entropy: List[float]):
-        return self.strategy(entropy=entropy, max_steps=self.max_steps)
+        return self.step_strategy(entropy=entropy, max_steps=self.max_steps)
 
     @torch.inference_mode
     def segment(
