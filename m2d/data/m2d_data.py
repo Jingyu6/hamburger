@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from typing import Any, Callable, Dict, List, Optional
 
 import lightning as L
@@ -104,11 +105,19 @@ class M2DDataModule(L.LightningDataModule):
                 remove_columns=raw_dataset.column_names, 
                 with_indices=True
             )
-        
-            if max_len is not None:
-                print(f"Saving the original unfiltered data.")
+
+            if save_entropy:
+                entropy_data = deepcopy(processed_data)
+                entropy_data = entropy_data.remove_columns(["steps"])
+                entropy_data.save_to_disk(
+                    save_path + "_entropy", 
+                    max_shard_size="1GB"
+                )
+
+                processed_data = processed_data.remove_columns(["entropy"])
 
             if max_len is None or save_raw:
+                print(f"Saving the original unfiltered data.")
                 processed_data.save_to_disk(
                     save_path + ("_unfiltered" if max_len is not None else ""), 
                     max_shard_size="1GB"
