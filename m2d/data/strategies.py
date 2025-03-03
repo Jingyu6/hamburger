@@ -31,7 +31,7 @@ def _confidence_to_thres_upper_bound(
     
     return entropy
 
-MIN_THRESHOLD = _confidence_to_thres_upper_bound(confidence=0.99)
+MIN_THRESHOLD = _confidence_to_thres_upper_bound(confidence=0.95)
 
 def _decreasing(
     entropy: List[float], 

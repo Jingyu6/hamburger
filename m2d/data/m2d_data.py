@@ -51,6 +51,7 @@ class M2DDataModule(L.LightningDataModule):
         batch_size: int = 4, 
         system_message: Optional[str] = None, 
         save_entropy: bool = False, 
+        strategy: str = "small_group", 
         **kwargs
     ):
         assert save_path is not None
@@ -68,7 +69,11 @@ class M2DDataModule(L.LightningDataModule):
 
             print(f"Create new {cls.__name__} dataset from {dataset_name}.")
 
-            segmentor = Segmentor(model=model, tokenizer=tokenizer)
+            segmentor = Segmentor(
+                model=model, 
+                tokenizer=tokenizer, 
+                strategy=strategy
+            )
 
             raw_dataset = load_dataset(
                 dataset_name,
