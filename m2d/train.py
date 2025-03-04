@@ -38,11 +38,12 @@ checkpoint_callback = ModelCheckpoint(
     mode="max",
     every_n_train_steps=1024, 
     dirpath="/data/data_persistent1/jingyu/m2d/ckpts",
-    filename="m2d-llama-1B-{step}",
+    filename="m2d-llama-1B" + f"-{config.run_name}-" + "{step}",
 )
 
 # logger
 wandb_logger = WandbLogger(
+    name=config.run_name if config.run_name != "" else None, 
     project="m2d", 
     log_model="all"
 )
@@ -70,4 +71,5 @@ trainer.fit(
     ckpt_path=config.resume_ckpt_path
 )
 
-trainer.save_checkpoint("/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-finish.ckpt")
+trainer.save_checkpoint(
+    f"/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-{config.run_name}-finish.ckpt")

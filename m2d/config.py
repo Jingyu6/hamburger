@@ -45,6 +45,8 @@ class M2DConfig(_LoadableConfig):
     test_ratio: float = 0.005
 
     accumulate_grad_batches: int = 2
+
+    run_name: str = ""
     
     def __post_init__(self):
         assert self.dataset_names is not None
