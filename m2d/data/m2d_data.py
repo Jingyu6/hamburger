@@ -23,9 +23,9 @@ class M2DDataModule(L.LightningDataModule):
         self.save_hyperparameters()
         
         if isinstance(save_path, str):
-            self.data = load_from_disk(save_path).shuffle()
+            self.data = load_from_disk(save_path)
         else:
-            self.data = concatenate_datasets([load_from_disk(path) for path in save_path]).shuffle()
+            self.data = concatenate_datasets([load_from_disk(path) for path in save_path])
         self.data = self.data.train_test_split(
             test_size=int(len(self.data) * test_ratio)
         )
