@@ -19,7 +19,8 @@ config.print_config()
 # create model
 if config.pretrained_ckpt_path is not None:
     print("Starting from pretrained ckpt...")
-    model = M2DLlama.load_from_checkpoint(config.pretrained_ckpt_path, map_location="cpu")
+    model = M2DLlama.load_from_checkpoint(
+        config.pretrained_ckpt_path, map_location="cpu")
 else:
     print("Starting from scratch...")
     model = M2DLlama(base_model_name=config.base_model_name)
@@ -38,7 +39,7 @@ checkpoint_callback = ModelCheckpoint(
     mode="max",
     every_n_train_steps=1024, 
     dirpath="/data/data_persistent1/jingyu/m2d/ckpts",
-    filename="m2d-llama-1B" + f"-{config.run_name}-" + "{step}",
+    filename="m2d-llama" + f"-{config.run_name}-" + "{step}",
 )
 
 # logger
@@ -72,4 +73,4 @@ trainer.fit(
 )
 
 trainer.save_checkpoint(
-    f"/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-{config.run_name}-finish.ckpt")
+    f"/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-{config.run_name}-finish.ckpt")
