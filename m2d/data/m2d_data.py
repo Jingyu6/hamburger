@@ -21,15 +21,20 @@ class M2DDataModule(L.LightningDataModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        
-        if isinstance(save_path, str):
-            self.data = load_from_disk(save_path)
-        else:
-            self.data = concatenate_datasets([load_from_disk(path) for path in save_path])
-        self.data = self.data.train_test_split(
-            test_size=int(len(self.data) * test_ratio)
-        )
+        self.save_path = save_path
+        self.test_ratio = test_ratio
         self.batch_size = batch_size
+
+    def setup(self, stage: Optional[str] = None):
+        if isinstance(self.save_path, str):
+            data = load_from_disk(self.save_path)
+        else:
+            data = concatenate_datasets([load_from_disk(path) for path in self.save_path])
+        data = data.train_test_split(
+            test_size=int(len(data) * self.test_ratio)
+        )
+        self.train_data = data["train"]
+        self.test_data = data["test"]
 
     @classmethod
     def from_hf_dataset(
@@ -159,7 +164,7 @@ class M2DDataModule(L.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            self.data["train"], 
+            self.train_data, 
             batch_size=self.batch_size, 
             collate_fn=M2DDataModule._collate_fn, 
             shuffle=True
@@ -167,7 +172,7 @@ class M2DDataModule(L.LightningDataModule):
     
     def val_dataloader(self):
         return DataLoader(
-            self.data["test"], 
+            self.test_data, 
             batch_size=self.batch_size, 
             collate_fn=M2DDataModule._collate_fn, 
         )
