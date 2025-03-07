@@ -12,3 +12,13 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
 - 2025/02/25: 
     * There seems to be a big performance difference on code using "\n" v.s. \n. 
     * Humaneval needs more output to finish. 
+
+- 2025/03/06:
+    * Pretrained models do have higher average conditional entropy than SFT model. 
+    * The conditional entropy seem to be transferrable among different sizes. 
+    * Need to think about the difference between BLT and M2D
+    * Need to factor out the influence of the data by training on the base model. 
+
+- 2025/03/07:
+    * Explore BLT local encoder
+    * Think about what's the main difference here
