@@ -1,88 +1,20 @@
-from types import MethodType
 from typing import List, Optional
 
 import torch
-from torch.nn import CrossEntropyLoss
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from m2d.data.strategies import STRATEGIES
-
-
-def _prefill(
-    self: LlamaForCausalLM,
-    input_ids=None,
-    attention_mask=None,
-    position_ids=None,
-    past_key_values=None,
-    inputs_embeds=None,
-    labels=None,
-    use_cache=None,
-    output_attentions=None,
-    output_hidden_states=None,
-    return_dict=None,
-    cache_position=None,
-    num_logits_to_keep=0,
-):
-    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = (
-        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-    )
-    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-    # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-    outputs = self.model(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        past_key_values=past_key_values,
-        inputs_embeds=inputs_embeds,
-        use_cache=use_cache,
-        output_attentions=output_attentions,
-        output_hidden_states=output_hidden_states,
-        return_dict=return_dict,
-        cache_position=cache_position,
-    )
-
-    hidden_states = outputs[0]
-    if self.config.pretraining_tp > 1:
-        lm_head_slices = self.lm_head.weight.split(self.vocab_size // self.config.pretraining_tp, dim=0)
-        logits = [torch.nn.functional.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
-        logits = torch.cat(logits, dim=-1)
-    else:
-        logits = self.lm_head(hidden_states[:, -num_logits_to_keep:, :]).float()
-
-    loss = None
-    if labels is not None:
-        # Upcast to float if we need to compute the loss to avoid potential precision issues
-        logits = logits.float()
-        # Shift so that tokens < n predict n
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        # Flatten the tokens
-        loss_fct = CrossEntropyLoss()
-        shift_logits = shift_logits.view(-1, self.config.vocab_size)
-        shift_labels = shift_labels.view(-1)
-        # Enable model parallelism
-        shift_labels = shift_labels.to(shift_logits.device)
-        loss = loss_fct(shift_logits, shift_labels)
-
-    if not return_dict:
-        output = (logits,) + outputs[1:]
-        return (loss,) + output if loss is not None else output
-
-    return logits
 
 
 class Segmentor:
     def __init__(
         self, 
-        model, 
-        tokenizer, 
-        strategy
+        model: AutoModelForCausalLM, 
+        tokenizer: AutoTokenizer, 
+        strategy: str
     ):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.model.prefill = MethodType(_prefill, self.model)
+        self.model: AutoModelForCausalLM = model
+        self.tokenizer: AutoTokenizer = tokenizer
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_steps = 4
         self.step_strategy = STRATEGIES[strategy]
@@ -133,11 +65,11 @@ class Segmentor:
         attention_mask = inputs["attention_mask"].to(self.model.device)
 
         # TODO: this part still takes too much mem now
-        logits = self.model.prefill(
+        logits = self.model.forward(
             input_ids=input_ids,
             attention_mask=attention_mask, 
             use_cache=False
-        )
+        ).logits
 
         results = {
             "input_ids": [], 
@@ -188,7 +120,8 @@ if __name__ == "__main__":
 
     segmentor = Segmentor(
         model=model, 
-        tokenizer=tokenizer
+        tokenizer=tokenizer, 
+        strategy="decreasing_v2"
     )
 
     print(segmentor.segment(
