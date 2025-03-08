@@ -302,6 +302,23 @@ class M2DLlama(L.LightningModule):
         loss = loss_fct(logits.float(), targets)
         return loss
 
+    def _calc_accuracy(
+        self, 
+        logits: torch.Tensor, 
+        targets: torch.Tensor
+    ):
+        pred = logits.argmax(dim=-1)
+        correct_mask = (pred == targets)
+        non_stop_mask = (targets != self.micro_stop_token_id)
+
+        # total accuracy
+        acc_all = torch.sum(correct_mask) / len(targets.view(-1))
+
+        # excluded accuracy (normalized)
+        acc_exc = torch.sum(correct_mask & non_stop_mask) / torch.sum(non_stop_mask)
+
+        return acc_all, acc_exc
+
     def training_step(self, batch, batch_idx):
         """
         batch: {
@@ -326,11 +343,14 @@ class M2DLlama(L.LightningModule):
         logits = self.forward(**batch)
         targets = self._get_targets(**batch)
         loss = self._calc_loss(logits, targets)
+        acc_all, acc_exc = self._calc_accuracy(logits, targets)
 
         self.log_dict({
                 "eval_loss": loss, 
-                "eval_perplexity": torch.exp(loss)
-            },  
+                "eval_perplexity": torch.exp(loss), 
+                "eval_token_acc_all": acc_all, 
+                "eval_token_acc_excluded": acc_exc, 
+            }, 
             prog_bar=True, 
             logger=True, 
             sync_dist=True, 
