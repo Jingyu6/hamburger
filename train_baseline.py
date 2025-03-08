@@ -4,8 +4,8 @@ from typing import Dict, List
 import torch
 from accelerate import PartialState
 from datasets import load_from_disk
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
-from trl import SFTConfig, SFTTrainer
+from transformers import (AutoModelForCausalLM, AutoTokenizer,
+                          LlamaForCausalLM, Trainer, TrainingArguments)
 
 from m2d.config import M2DConfig
 from m2d.data.m2d_data import M2DDataModule
@@ -14,8 +14,9 @@ from m2d.data.m2d_data import M2DDataModule
 def process_fn(example):
     input_ids = example["input_ids"]
     inst_len = example["inst_lens"]
+    # offset will be performed by the trainer itself
     labels = [-100] * len(input_ids)
-    labels[inst_len - 1: len(input_ids) - 1] = input_ids[inst_len: len(input_ids)]
+    labels[inst_len: len(input_ids)] = input_ids[inst_len: len(input_ids)]
     mask = [1] * len(input_ids)
     return {
         "input_ids": input_ids, 
@@ -95,8 +96,9 @@ def main():
     )
 
     tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    config = SFTConfig(
+    config = TrainingArguments(
         output_dir="./local/baseline", 
         run_name="sft_llama_1b", 
         per_device_train_batch_size=2, 
@@ -105,15 +107,16 @@ def main():
         num_train_epochs=1, 
         logging_steps=32, 
         save_strategy="no", 
-        dataset_kwargs={"skip_prepare_dataset": True}, 
         gradient_checkpointing_kwargs={'use_reentrant':False}, 
         bf16=True, 
-        fsdp="full_shard"
+        fsdp="full_shard", 
+        report_to="none", 
+        max_steps=16384
     )
 
     train_dataset = get_dataset("/data/data_persistent1/jingyu/m2d/baseline_data") 
 
-    trainer = SFTTrainer(
+    trainer = Trainer(
         model=model, 
         args=config, 
         train_dataset=train_dataset, 
