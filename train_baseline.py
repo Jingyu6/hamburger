@@ -1,8 +1,10 @@
 import os
+from typing import Dict, List
 
 import torch
+from accelerate import PartialState
 from datasets import load_from_disk
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from trl import SFTConfig, SFTTrainer
 
 from m2d.config import M2DConfig
@@ -47,8 +49,6 @@ def get_dataset(data_path: str):
 
     return train_ds
 
-from typing import Dict, List
-
 
 class CustomDataCollator:
     def __init__(self, tokenizer):
@@ -79,10 +79,14 @@ def main():
     # model
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
 
-    model = AutoModelForCausalLM.from_pretrained(
+    device_string = PartialState().process_index
+
+    model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
         model_name, 
         torch_dtype=torch.bfloat16, 
         attn_implementation="flash_attention_2", 
+        use_cache=False, 
+        device_map={"": device_string}
     )
 
     tokenizer = AutoTokenizer.from_pretrained(
@@ -100,10 +104,11 @@ def main():
         learning_rate=1e-5, 
         num_train_epochs=1, 
         logging_steps=32, 
-        save_steps=1024, 
+        save_strategy="no", 
         dataset_kwargs={"skip_prepare_dataset": True}, 
         gradient_checkpointing_kwargs={'use_reentrant':False}, 
-        bf16=True
+        bf16=True, 
+        fsdp="full_shard"
     )
 
     train_dataset = get_dataset("/data/data_persistent1/jingyu/m2d/baseline_data") 
@@ -116,6 +121,14 @@ def main():
     )
 
     trainer.train()
+
+    # saving
+    if trainer.is_fsdp_enabled:
+        trainer.accelerator.state.fsdp_plugin.set_state_dict_type("FULL_STATE_DICT")
+    trainer.save_model("./local/baseline/finish")
+    tokenizer.save_pretrained("./local/baseline/finish")
+
+    trainer.accelerator.wait_for_everyone()
 
 
 if __name__ == "__main__": 
