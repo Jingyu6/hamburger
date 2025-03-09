@@ -44,6 +44,10 @@ class M2DLlama(L.LightningModule):
         )
         # this is a reserved token in the model '<|reserved_special_token_0|>'
         self.micro_stop_token_id = 128002
+        # special init as the average
+        self.model.model.embed_tokens.weight.data[self.micro_stop_token_id] = \
+            self.model.model.embed_tokens.weight.data.mean(0)
+        # create conditional micro step decoder
         self.micro_step_decoder = ConditionalMicroStepDecoder(
             config=self.model.config, 
             micro_stop_token_id=self.micro_stop_token_id, 
