@@ -54,7 +54,8 @@ class DistillTeacher(nn.Module):
         offset = 0
         for seq_len, inst_len, step in zip(seq_lens, inst_lens, steps):
             logits.extend(
-                all_logits[offset + inst_len:offset + seq_len].split(
+                # shift left by 1 because we're using the logits (output)
+                all_logits[offset + inst_len - 1:offset + seq_len - 1].split(
                     split_size=step, 
                     dim=0
                 )
