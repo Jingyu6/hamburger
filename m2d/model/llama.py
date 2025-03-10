@@ -3,6 +3,8 @@ from typing import Dict, List, Optional
 
 import lightning as L
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import transformers.modeling_flash_attention_utils as utils
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
@@ -15,6 +17,7 @@ from m2d.config import GenConfig
 from m2d.model.fa2_monkey_patch import prepare_fa2_from_position_ids
 from m2d.model.m2d_modules import (CompositionalEmbedder,
                                    ConditionalMicroStepDecoder)
+from m2d.model.teacher import DistillTeacher
 
 # apply a monkey patch here
 utils.prepare_fa2_from_position_ids = prepare_fa2_from_position_ids
@@ -24,7 +27,8 @@ class M2DLlama(L.LightningModule):
     def __init__(
         self, 
         base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct", 
-        max_steps: int = 4
+        max_steps: int = 4, 
+        distill_kl: Optional[float] = 1.0
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -55,6 +59,11 @@ class M2DLlama(L.LightningModule):
         )
         self.max_steps = max_steps
         self.train()
+
+        self.distill_kl = distill_kl
+        if distill_kl is not None:
+            self.teacher = DistillTeacher(teacher_model_name=base_model_name)
+            self.kl_loss = nn.KLDivLoss(reduction="none")
 
     @torch.inference_mode
     def generate(
@@ -336,10 +345,29 @@ class M2DLlama(L.LightningModule):
         targets = self._get_targets(**batch)
         loss = self._calc_loss(logits, targets)
 
-        self.log_dict({
+        log_dict = {
             "train_loss": loss, 
             "train_perplexity": torch.exp(loss)
-        }, on_step=True, prog_bar=True, logger=True)
+        }
+
+        if self.distill_kl is not None:
+            with torch.no_grad():
+                teacher_logits, mask = self.teacher.get_logits(**batch)
+
+            # put into the correct space
+            teacher_logits = F.softmax(teacher_logits, dim=-1)
+            logits = F.log_softmax(logits, dim=-1)
+
+            kl_loss = self.kl_loss(logits, teacher_logits)
+
+            # apply mask and avg
+            kl_loss = (kl_loss * mask.unsqueeze(-1)).sum() / mask.sum()
+
+            loss += self.distill_kl * kl_loss
+
+            log_dict["kl_loss"] = kl_loss
+
+        self.log_dict(log_dict, on_step=True, prog_bar=True, logger=True)
 
         return loss
 
