@@ -41,8 +41,7 @@ class M2DDataModule(L.LightningDataModule):
         cls, 
         dataset_name: Optional[str] = None, 
         save_path: Optional[str] = None, 
-        model: Optional[AutoModelForCausalLM] = None, 
-        tokenizer: Optional[AutoTokenizer] = None, 
+        model_name: str = "meta-llama/Llama-3.2-1B-Instruct", 
         inst_name: str = "instruction", 
         resp_name: str = "response", 
         max_num_samples: int = -1, 
@@ -57,6 +56,7 @@ class M2DDataModule(L.LightningDataModule):
         system_message: Optional[str] = None, 
         save_entropy: bool = False, 
         strategy: str = "small_group", 
+        distill: bool = False, 
         **kwargs
     ):
         assert save_path is not None
@@ -68,78 +68,88 @@ class M2DDataModule(L.LightningDataModule):
             except:
                 print("Failed to load existing data. Try creating new data. ")
 
-        if dataset_name is not None:
-            assert model is not None
-            assert tokenizer is not None
+        assert dataset_name is not None
+        print(f"Create new {cls.__name__} dataset from {dataset_name}.")
 
-            print(f"Create new {cls.__name__} dataset from {dataset_name}.")
+        if distill:
+            print("Generate distilled dataset first")
+            raise NotImplemented
 
-            segmentor = Segmentor(
-                model=model, 
-                tokenizer=tokenizer, 
-                strategy=strategy
+        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, 
+            trust_remote_code=True, 
+            torch_dtype=torch.bfloat16, 
+            attn_implementation="flash_attention_2",
+            device_map="auto"
+        )
+
+        segmentor = Segmentor(
+            model=model, 
+            tokenizer=tokenizer, 
+            strategy=strategy
+        )
+
+        raw_dataset = load_dataset(
+            dataset_name,
+            name=subset,  
+            split=split
+        ).shuffle() # Randomize length distribution
+
+        if map_fn is not None:
+            raw_dataset = raw_dataset.map(map_fn, num_proc=8)
+
+        if filter_fn is not None:
+            raw_dataset = raw_dataset.filter(filter_fn)
+
+        if max_num_samples > 0:
+            raw_dataset = raw_dataset.select(range(max_num_samples))
+
+        def process_batch(batch, indices):
+            # avoids memory leak
+            if any([x % empty_cache_every == 0 for x in indices]):
+                torch.cuda.empty_cache()
+
+            return segmentor.segment(
+                instructions=batch[inst_name], 
+                responses=batch[resp_name], 
+                system_message=system_message, 
+                save_entropy=save_entropy
             )
 
-            raw_dataset = load_dataset(
-                dataset_name,
-                name=subset,  
-                split=split
-            ).shuffle() # Randomize length distribution
+        processed_data = raw_dataset.map(
+            process_batch, 
+            batch_size=batch_size, # make sure we dont get OOM
+            batched=True, 
+            num_proc=1, # need to use 1 since we only have 1 model
+            remove_columns=raw_dataset.column_names, 
+            with_indices=True
+        )
 
-            if map_fn is not None:
-                raw_dataset = raw_dataset.map(map_fn, num_proc=8)
-
-            if filter_fn is not None:
-                raw_dataset = raw_dataset.filter(filter_fn)
-
-            if max_num_samples > 0:
-                raw_dataset = raw_dataset.select(range(max_num_samples))
-
-            def process_batch(batch, indices):
-                # avoids memory leak
-                if any([x % empty_cache_every == 0 for x in indices]):
-                    torch.cuda.empty_cache()
-
-                return segmentor.segment(
-                    instructions=batch[inst_name], 
-                    responses=batch[resp_name], 
-                    system_message=system_message, 
-                    save_entropy=save_entropy
-                )
-
-            processed_data = raw_dataset.map(
-                process_batch, 
-                batch_size=batch_size, # make sure we dont get OOM
-                batched=True, 
-                num_proc=1, # need to use 1 since we only have 1 model
-                remove_columns=raw_dataset.column_names, 
-                with_indices=True
+        if save_entropy:
+            entropy_data = deepcopy(processed_data)
+            entropy_data = entropy_data.remove_columns(["steps"])
+            entropy_data.save_to_disk(
+                save_path + "_entropy", 
+                max_shard_size="1GB"
             )
 
-            if save_entropy:
-                entropy_data = deepcopy(processed_data)
-                entropy_data = entropy_data.remove_columns(["steps"])
-                entropy_data.save_to_disk(
-                    save_path + "_entropy", 
-                    max_shard_size="1GB"
-                )
+            processed_data = processed_data.remove_columns(["entropy"])
 
-                processed_data = processed_data.remove_columns(["entropy"])
+        if max_len is None or save_raw:
+            print(f"Saving the original unfiltered data.")
+            processed_data.save_to_disk(
+                save_path + ("_unfiltered" if max_len is not None else ""), 
+                max_shard_size="1GB"
+            )
 
-            if max_len is None or save_raw:
-                print(f"Saving the original unfiltered data.")
-                processed_data.save_to_disk(
-                    save_path + ("_unfiltered" if max_len is not None else ""), 
-                    max_shard_size="1GB"
-                )
-
-            if max_len is not None:
-                print(f"Filter data which are longer than {max_len} tokens.")
-                original_size = len(processed_data)
-                processed_data = processed_data.filter(lambda x: len(x["input_ids"]) <= max_len)
-                new_size = len(processed_data)
-                print(f"Filtered {original_size - new_size} samples.")
-                processed_data.save_to_disk(save_path, max_shard_size="1GB")
+        if max_len is not None:
+            print(f"Filter data which are longer than {max_len} tokens.")
+            original_size = len(processed_data)
+            processed_data = processed_data.filter(lambda x: len(x["input_ids"]) <= max_len)
+            new_size = len(processed_data)
+            print(f"Filtered {original_size - new_size} samples.")
+            processed_data.save_to_disk(save_path, max_shard_size="1GB")
 
         return cls(save_path, **kwargs)
 
@@ -197,26 +207,10 @@ if __name__ == "__main__":
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    # first time process the data
-    tokenizer = AutoTokenizer.from_pretrained(
-        "meta-llama/Llama-3.2-1B-Instruct", 
-        use_fast=True
-    )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Llama-3.2-1B-Instruct", 
-        trust_remote_code=True, 
-        torch_dtype=torch.bfloat16, 
-        attn_implementation="flash_attention_2",
-        device_map="auto"
-    )
-
     # datasets
     data = M2DDataModule.from_hf_dataset(
         dataset_name="imone/OpenOrca_FLAN", 
         save_path="./local/openorca", 
-        model=model, 
-        tokenizer=tokenizer, 
         filter_fn=lambda sample: sample["condition"] == "GPT4", 
         max_len=4096
     )
@@ -224,8 +218,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="nampdn-ai/tiny-codes", 
         save_path="./local/tinycode", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="prompt", 
         resp_name="response", 
         max_len=8192
@@ -234,8 +226,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="teknium/openhermes", 
         save_path="./local/openhermes", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="instruction", 
         resp_name="output", 
         max_len=8192
@@ -244,8 +234,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="meta-math/MetaMathQA", 
         save_path="./local/metamathqa", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="query", 
         resp_name="response", 
         max_len=8192
@@ -254,8 +242,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="garage-bAInd/Open-Platypus", 
         save_path="./local/openplatypus", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="instruction", 
         resp_name="output", 
         max_len=8192
@@ -264,8 +250,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="openbmb/UltraInteract_sft", 
         save_path="./local/ultrainteract", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="instruction", 
         resp_name="response", 
         max_len=8192
@@ -274,8 +258,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="ise-uiuc/Magicoder-Evol-Instruct-110K", 
         save_path="./local/magicoder", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="instruction", 
         resp_name="response", 
         max_len=8192
@@ -284,8 +266,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="Vezora/Tested-143k-Python-Alpaca", 
         save_path="./local/pythonalpaca", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="instruction", 
         resp_name="output", 
         max_len=8192
@@ -298,8 +278,6 @@ if __name__ == "__main__":
         dataset_name="ServiceNow-AI/R1-Distill-SFT", 
         subset="v1", 
         save_path="./local/r1distill", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="problem", 
         resp_name="reannotated_assistant_content", 
         map_fn=_parse_message, 
@@ -317,8 +295,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="GAIR/lima", 
         save_path="./local/lima", 
-        model=model, 
-        tokenizer=tokenizer, 
         map_fn=_parse_message, 
         batch_size=2 # since its longer
     )
@@ -332,8 +308,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="allenai/tulu-v2-sft-mixture", 
         save_path="./local/tulu", 
-        model=model, 
-        tokenizer=tokenizer, 
         map_fn=_parse_message
     )
 
@@ -346,16 +320,12 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="lmsys/lmsys-chat-1m", 
         save_path="./local/lmsys", 
-        model=model, 
-        tokenizer=tokenizer, 
         map_fn=_parse_message
     )
     
     data = M2DDataModule.from_hf_dataset(
         dataset_name="open-r1/OpenR1-Math-220k", 
         save_path="./local/openr1math", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="problem", 
         resp_name="solution", 
         max_len=8192, 
@@ -363,9 +333,7 @@ if __name__ == "__main__":
 
     data = M2DDataModule.from_hf_dataset(
         dataset_name="PrimeIntellect/SYNTHETIC-1", 
-        save_path="./local/synthetic1", 
-        model=model, 
-        tokenizer=tokenizer, 
+        save_path="./local/synthetic1",  
         inst_name="prompt", 
         resp_name="llm_response", 
         system_message="You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. ", 
@@ -379,8 +347,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="facebook/natural_reasoning", 
         save_path="./local/naturalreasoning", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="question", 
         resp_name="output", 
         map_fn=lambda sample: {"output": sample["responses"][0]["response"]}, 
@@ -390,8 +356,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="argilla/ifeval-like-data", 
         save_path="./local/ifevallike", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="prompt", 
         resp_name="response", 
         subset="filtered"
@@ -406,8 +370,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="open-r1/OpenThoughts-114k-math", 
         save_path="./local/openthoughts", 
-        model=model, 
-        tokenizer=tokenizer, 
         map_fn=_parse_message, 
         inst_name="problem", 
         resp_name="solution", 
@@ -424,8 +386,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="codeparrot/apps", 
         save_path="./local/apps", 
-        model=model, 
-        tokenizer=tokenizer, 
         inst_name="prompt", 
         resp_name="response", 
         map_fn=_parse_message, 
@@ -441,8 +401,6 @@ if __name__ == "__main__":
     data = M2DDataModule.from_hf_dataset(
         dataset_name="BAAI/Infinity-Instruct", 
         save_path="./local/infinityinstruct", 
-        model=model, 
-        tokenizer=tokenizer, 
         map_fn=_parse_message, 
         filter_fn=lambda sample: len(sample["instruction"]) + len(sample["response"]) < (8192 * 4), 
         max_len=8192, 
