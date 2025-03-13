@@ -85,11 +85,12 @@ class M2DDataModule(L.LightningDataModule):
                 if request_output.finished:
                     responses.append(request_output.outputs[0].text)
 
-            if len(responses) % 200 == 0:
+            if len(responses) % 200 == 0 and len(responses) > 0:
                 print(f"Finished {len(responses)}/{total_prompt_cnt} generations.")
 
         # store back to disk
-        dataset.add_column("distilled_output", responses)
+        dataset = dataset.remove_columns([n for n in dataset.column_names if n != inst_name])
+        dataset = dataset.add_column("distilled_output", responses)
         dataset.save_to_disk(save_path, max_shard_size="1GB")
 
         return dataset
@@ -112,7 +113,6 @@ class M2DDataModule(L.LightningDataModule):
         split: str = "train", 
         batch_size: int = 4, 
         system_message: Optional[str] = None, 
-        save_entropy: bool = False, 
         strategy: str = "small_group", 
         distill: bool = False, 
         distill_model_name: Optional[str] = None, 
@@ -190,8 +190,7 @@ class M2DDataModule(L.LightningDataModule):
             return segmentor.segment(
                 instructions=batch[inst_name], 
                 responses=batch[resp_name], 
-                system_message=system_message, 
-                save_entropy=save_entropy
+                system_message=system_message 
             )
 
         processed_data = raw_dataset.map(
@@ -203,15 +202,10 @@ class M2DDataModule(L.LightningDataModule):
             with_indices=True
         )
 
-        if save_entropy:
-            entropy_data = deepcopy(processed_data)
-            entropy_data = entropy_data.remove_columns(["steps"])
-            entropy_data.save_to_disk(
-                save_path + "_entropy", 
-                max_shard_size="1GB"
-            )
-
-            processed_data = processed_data.remove_columns(["entropy"])
+        keep_columns = ["input_ids", "steps", "inst_lens"]
+        processed_data = processed_data.remove_columns(
+            [n for n in processed_data.column_names if n not in keep_columns]
+        )
 
         if max_len is None or save_raw:
             print(f"Saving the original unfiltered data.")

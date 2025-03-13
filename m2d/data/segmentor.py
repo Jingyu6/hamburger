@@ -27,8 +27,7 @@ class Segmentor:
         self, 
         instructions: List[str], 
         responses: List[str], 
-        system_message: Optional[str] = None, 
-        save_entropy: bool = False
+        system_message: Optional[str] = None
     ):
         assert len(instructions) == len(responses)
 
@@ -77,9 +76,6 @@ class Segmentor:
             "inst_lens": inst_lens
         }
 
-        if save_entropy:
-            results["entropy"] = []
-
         for inst_len, mask, inputs, logit in zip(
             inst_lens, 
             attention_mask.cpu().tolist(), 
@@ -96,8 +92,6 @@ class Segmentor:
             
             results["input_ids"].append(inputs)
             results["steps"].append(steps)
-            if save_entropy:
-                results["entropy"].append(entropy)
         
         return results
 
