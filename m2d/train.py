@@ -31,6 +31,7 @@ data_module = M2DDataModule(
     test_ratio=config.test_ratio, 
     batch_size=config.batch_size, 
 )
+data_module.get_data_summary()
 
 # checkpoint callbacks
 checkpoint_callback = ModelCheckpoint(
