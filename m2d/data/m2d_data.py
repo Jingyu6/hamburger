@@ -26,11 +26,27 @@ class M2DDataModule(L.LightningDataModule):
         self.test_ratio = test_ratio
         self.batch_size = batch_size
 
-    def setup(self, stage: Optional[str] = None):
         if isinstance(self.save_path, str):
             data = load_from_disk(self.save_path)
+            self.data_summary = {
+                self.save_path: len(data)
+            }
         else:
-            data = concatenate_datasets([load_from_disk(path) for path in self.save_path])
+            assert isinstance(self.save_path, list)
+            self.data_summary = {}
+            data_list = []
+            for p in self.save_path:
+                parsed_save_path = p.split(":")
+                path = parsed_save_path[0]
+                replicate_cnt = 1
+                if len(parsed_save_path) == 2:
+                    replicate_cnt = int(parsed_save_path[-1])
+                ds = load_from_disk(path)
+                data_list.extend([ds] * replicate_cnt)
+                self.data_summary[path] = len(ds) * replicate_cnt
+
+            data = concatenate_datasets(data_list)
+
         data = data.train_test_split(
             test_size=int(len(data) * self.test_ratio)
         )
@@ -261,7 +277,7 @@ class M2DDataModule(L.LightningDataModule):
     def get_speedup_estimate(self):
         micro_steps = 0
         macro_steps = 0
-        for s in tqdm(self.data['train']):
+        for s in tqdm(self.train_data):
             steps = s["steps"]
             micro_steps += sum(steps)
             macro_steps += len(steps)
@@ -269,9 +285,15 @@ class M2DDataModule(L.LightningDataModule):
 
     def get_output_token_count(self):
         token_cnt = 0
-        for s in tqdm(self.data['train']):
+        for s in tqdm(self.train_data):
             token_cnt += (len(s["input_ids"]) - s["inst_lens"])
         print(f"Total number of training tokens: {token_cnt}.")
+
+    def get_data_summary(self):
+        print("Data summary: ")
+        total_cnt = len(self.train_data)
+        for data_name, data_len in self.data_summary.items():
+            print(f"\tData percentage: {(data_len / total_cnt) * 100:.2f}%: {data_name}")
 
 
 if __name__ == "__main__":
