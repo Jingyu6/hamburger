@@ -4,7 +4,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import lightning as L
 import torch
-from datasets import concatenate_datasets, load_dataset, load_from_disk
+from datasets import (Dataset, concatenate_datasets, load_dataset,
+                      load_from_disk)
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -37,6 +38,63 @@ class M2DDataModule(L.LightningDataModule):
         self.test_data = data["test"]
 
     @classmethod
+    def get_distilled_dataset(
+        cls, 
+        model_name: str, 
+        dataset: Dataset, 
+        inst_name: str, 
+        save_path: str
+    ):
+        try:
+            from vllm import EngineArgs, LLMEngine, SamplingParams
+        except:
+            raise ImportError("Please install vllm for faster distillation.")
+
+        # greedy sampling
+        sampling_params = SamplingParams(
+            temperature=0.0, 
+            n=1, 
+            max_tokens=7168 # TODO: later consider changing it
+        )
+        # get the model
+        engine = LLMEngine.from_engine_args(EngineArgs(
+            model=model_name, 
+            dtype="bfloat16"
+        ))
+
+        # get raw prompt
+        prompts = dataset[inst_name]
+        total_prompt_cnt = len(prompts)
+
+        # generate
+        request_id = 0
+        responses = []
+        while prompts or engine.has_unfinished_requests():
+            if prompts:
+                prompt = prompts.pop(0)
+                engine.add_request(
+                    str(request_id), 
+                    prompt, 
+                    sampling_params
+                )
+                request_id += 1
+
+            request_outputs = engine.step()
+
+            for request_output in request_outputs:
+                if request_output.finished:
+                    responses.append(request_output.outputs[0].text)
+
+            if len(responses) % 200 == 0:
+                print(f"Finished {len(responses)}/{total_prompt_cnt} generations.")
+
+        # store back to disk
+        dataset.add_column("distilled_output", responses)
+        dataset.save_to_disk(save_path, max_shard_size="1GB")
+
+        return dataset
+
+    @classmethod
     def from_hf_dataset(
         cls, 
         dataset_name: Optional[str] = None, 
@@ -57,6 +115,8 @@ class M2DDataModule(L.LightningDataModule):
         save_entropy: bool = False, 
         strategy: str = "small_group", 
         distill: bool = False, 
+        distill_model_name: Optional[str] = None, 
+        distill_save_path: Optional[str] = None, 
         **kwargs
     ):
         assert save_path is not None
@@ -70,25 +130,6 @@ class M2DDataModule(L.LightningDataModule):
 
         assert dataset_name is not None
         print(f"Create new {cls.__name__} dataset from {dataset_name}.")
-
-        if distill:
-            print("Generate distilled dataset first")
-            raise NotImplemented
-
-        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name, 
-            trust_remote_code=True, 
-            torch_dtype=torch.bfloat16, 
-            attn_implementation="flash_attention_2",
-            device_map="auto"
-        )
-
-        segmentor = Segmentor(
-            model=model, 
-            tokenizer=tokenizer, 
-            strategy=strategy
-        )
 
         raw_dataset = load_dataset(
             dataset_name,
@@ -104,6 +145,42 @@ class M2DDataModule(L.LightningDataModule):
 
         if max_num_samples > 0:
             raw_dataset = raw_dataset.select(range(max_num_samples))
+
+        if distill:
+            distill_dataset = None
+            if os.path.exists(distill_save_path):
+                try:
+                    print(f"Try reusing old distill dataset.")
+                    distill_dataset = cls(distill_save_path, **kwargs)
+                except:
+                    print(f"Error finding old distill dataset.")
+            
+            if distill_dataset is None:
+                print("Generate distilled dataset first")
+                distill_dataset = cls.get_distilled_dataset(
+                    model_name=distill_model_name if distill_model_name is not None else model_name, 
+                    dataset=raw_dataset, 
+                    inst_name=inst_name, 
+                    save_path=distill_save_path
+                )
+            
+            raw_dataset = distill_dataset
+            resp_name = "distilled_output"
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, 
+            trust_remote_code=True, 
+            torch_dtype=torch.bfloat16, 
+            attn_implementation="flash_attention_2",
+            device_map="auto"
+        )
+
+        segmentor = Segmentor(
+            model=model, 
+            tokenizer=tokenizer, 
+            strategy=strategy
+        )
 
         def process_batch(batch, indices):
             # avoids memory leak
