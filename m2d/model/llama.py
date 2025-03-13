@@ -28,7 +28,7 @@ class M2DLlama(L.LightningModule):
         self, 
         base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct", 
         max_steps: int = 4, 
-        distill_kl: Optional[float] = 1.0
+        distill_kl: Optional[float] = None
     ):
         super().__init__()
         self.save_hyperparameters()
