@@ -305,68 +305,67 @@ if __name__ == "__main__":
         dataset_name="imone/OpenOrca_FLAN", 
         save_path="./local/openorca", 
         filter_fn=lambda sample: sample["condition"] == "GPT4", 
-        max_len=4096
+        max_len=4096, 
+        strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="nampdn-ai/tiny-codes", 
         save_path="./local/tinycode", 
         inst_name="prompt", 
         resp_name="response", 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="teknium/openhermes", 
         save_path="./local/openhermes", 
         inst_name="instruction", 
         resp_name="output", 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="meta-math/MetaMathQA", 
         save_path="./local/metamathqa", 
         inst_name="query", 
         resp_name="response", 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="garage-bAInd/Open-Platypus", 
         save_path="./local/openplatypus", 
         inst_name="instruction", 
         resp_name="output", 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-    
     data = M2DDataModule.from_hf_dataset(
         dataset_name="openbmb/UltraInteract_sft", 
         save_path="./local/ultrainteract", 
         inst_name="instruction", 
         resp_name="response", 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="ise-uiuc/Magicoder-Evol-Instruct-110K", 
         save_path="./local/magicoder", 
         inst_name="instruction", 
         resp_name="response", 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="Vezora/Tested-143k-Python-Alpaca", 
         save_path="./local/pythonalpaca", 
         inst_name="instruction", 
         resp_name="output", 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     def _parse_message(example):
         return {"problem": example["reannotated_messages"][0]["content"]}
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="ServiceNow-AI/R1-Distill-SFT", 
         subset="v1", 
@@ -376,54 +375,51 @@ if __name__ == "__main__":
         map_fn=_parse_message, 
         filter_fn=lambda x: (len(x["problem"]) + len(x["reannotated_assistant_content"])) <= 4096, 
         system_message="You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. ", 
-        batch_size=2 # since its longer
+        batch_size=2, # since its longer
+        strategy="decreasing_v2", 
     )
-
     def _parse_message(example):
         return {
             "instruction": example["conversations"][0],
             "response": example["conversations"][1]
         }
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="GAIR/lima", 
         save_path="./local/lima", 
         map_fn=_parse_message, 
-        batch_size=2 # since its longer
+        batch_size=2, # since its longer 
+        strategy="decreasing_v2", 
     )
-    
     def _parse_message(example):
         return {
             "instruction": example["messages"][0]["content"],
             "response": example["messages"][1]["content"]
         }
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="allenai/tulu-v2-sft-mixture", 
         save_path="./local/tulu", 
-        map_fn=_parse_message
+        map_fn=_parse_message, 
+        strategy="decreasing_v2", 
     )
-
     def _parse_message(example):
         return {
             "instruction": example["conversation"][0]["content"],
             "response": example["conversation"][1]["content"]
         }
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="lmsys/lmsys-chat-1m", 
         save_path="./local/lmsys", 
-        map_fn=_parse_message
+        map_fn=_parse_message, 
+        strategy="decreasing_v2", 
     )
-    
     data = M2DDataModule.from_hf_dataset(
         dataset_name="open-r1/OpenR1-Math-220k", 
         save_path="./local/openr1math", 
         inst_name="problem", 
         resp_name="solution", 
         max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="PrimeIntellect/SYNTHETIC-1", 
         save_path="./local/synthetic1",  
@@ -434,32 +430,31 @@ if __name__ == "__main__":
             sample.get("score", None) == 1 and \
             (len(sample["prompt"]) + len(sample["llm_response"])) <= 8192
         ),  
-        max_len=8192   
+        max_len=8192, 
+        strategy="decreasing_v2",   
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="facebook/natural_reasoning", 
         save_path="./local/naturalreasoning", 
         inst_name="question", 
         resp_name="output", 
         map_fn=lambda sample: {"output": sample["responses"][0]["response"]}, 
-        max_len=8192   
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-    
     data = M2DDataModule.from_hf_dataset(
         dataset_name="argilla/ifeval-like-data", 
         save_path="./local/ifevallike", 
         inst_name="prompt", 
         resp_name="response", 
-        subset="filtered"
+        subset="filtered", 
+        strategy="decreasing_v2", 
     )
-
     def _parse_message(example):
         return {
             "instruction": example["conversations"][0]["value"],
             "response": example["conversations"][1]["value"]
         }
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="open-r1/OpenThoughts-114k-math", 
         save_path="./local/openthoughts", 
@@ -467,35 +462,60 @@ if __name__ == "__main__":
         inst_name="problem", 
         resp_name="solution", 
         batch_size=1, # since its longer
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     def _parse_message(example):
         return {
             "prompt": "Write python code to solve the following coding question:\n{question}\n".format(question=example["question"]),
             "response": "```python\n{code}\n```".format(code=example["solutions"][0])
         }
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="codeparrot/apps", 
         save_path="./local/apps", 
         inst_name="prompt", 
         resp_name="response", 
         map_fn=_parse_message, 
-        max_len=8192
+        max_len=8192, 
+        strategy="decreasing_v2", 
     )
-
     def _parse_message(example):
         return {
             "instruction": example["conversations"][0]["value"],
             "response": example["conversations"][1]["value"]
         }
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="BAAI/Infinity-Instruct", 
         save_path="./local/infinityinstruct", 
         map_fn=_parse_message, 
         filter_fn=lambda sample: len(sample["instruction"]) + len(sample["response"]) < (8192 * 4), 
         max_len=8192, 
-        subset="Gen"
+        subset="Gen", 
+        strategy="decreasing_v2", 
     )
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="TIGER-Lab/MathInstruct", 
+        save_path="./local/mathinstruct", 
+        inst_name="instruction", 
+        resp_name="output", 
+        max_len=8192, 
+        strategy="decreasing_v2", 
+    )
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="PawanKrd/math-gpt-4o-200k", 
+        save_path="./local/mathgpt", 
+        inst_name="prompt", 
+        resp_name="response", 
+        max_len=8192, 
+        strategy="decreasing_v2", 
+    )
+
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="TIGER-Lab/MATH-plus", 
+        save_path="./local/mathplus", 
+        inst_name="instruction", 
+        resp_name="output", 
+        max_len=8192, 
+        strategy="decreasing_v2", 
+    )
+    
