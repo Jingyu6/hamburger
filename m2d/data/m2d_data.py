@@ -310,9 +310,10 @@ if __name__ == "__main__":
     )
     data = M2DDataModule.from_hf_dataset(
         dataset_name="nampdn-ai/tiny-codes", 
-        save_path="./local/tinycode", 
+        save_path="./local/tinycodepython", 
         inst_name="prompt", 
         resp_name="response", 
+        filter_fn=lambda sample: sample["programming_language"] == "Python", 
         max_len=8192, 
         strategy="decreasing_v2", 
     )
