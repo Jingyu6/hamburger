@@ -509,7 +509,6 @@ if __name__ == "__main__":
         max_len=8192, 
         strategy="decreasing_v2", 
     )
-
     data = M2DDataModule.from_hf_dataset(
         dataset_name="TIGER-Lab/MATH-plus", 
         save_path="./local/mathplus", 
@@ -518,4 +517,12 @@ if __name__ == "__main__":
         max_len=8192, 
         strategy="decreasing_v2", 
     )
-    
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="cognitivecomputations/OpenCoder-LLM_opc-sft-stage1-DolphinLabeled", 
+        save_path="./local/opencoder", 
+        inst_name="instruction", 
+        resp_name="output", 
+        max_len=8192, 
+        subset="filtered_infinity_instruct", 
+        strategy="decreasing_v2", 
+    )
