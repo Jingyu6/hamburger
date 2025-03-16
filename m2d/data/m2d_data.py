@@ -545,4 +545,25 @@ if __name__ == "__main__":
         split="train",  
         strategy="decreasing_v2", 
     )
-    
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="AI-MO/NuminaMath-CoT", 
+        save_path="./local/mathcot", 
+        inst_name="problem", 
+        resp_name="solution", 
+        strategy="decreasing_v2", 
+    )
+    def _parse_message(example): 
+        raw_answer: str = example["response"]
+        raw_question = example["question"]
+        return {
+            "cot_problem": raw_question + " Reason the question and think step by step. Please end with \"The final answer is [answer]\" where [answer] is your solution. ", 
+            "cot_answer": raw_answer.replace("Therefore, the final answer is", "The final answer is")
+        }
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="ankner/gsm8k-CoT", 
+        save_path="./local/gsm8kcot", 
+        inst_name="cot_problem", 
+        resp_name="cot_answer", 
+        map_fn=_parse_message,  
+        strategy="decreasing_v2", 
+    )
