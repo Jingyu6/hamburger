@@ -536,4 +536,13 @@ if __name__ == "__main__":
         subset="educational_instruct", 
         strategy="decreasing_v2", 
     )
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="openai/gsm8k", 
+        save_path="./local/gsm8k", 
+        inst_name="question", 
+        resp_name="answer", 
+        subset="main", 
+        split="train",  
+        strategy="decreasing_v2", 
+    )
     
