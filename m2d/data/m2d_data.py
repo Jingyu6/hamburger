@@ -527,3 +527,13 @@ if __name__ == "__main__":
         subset="filtered_infinity_instruct", 
         strategy="decreasing_v2", 
     )
+    data = M2DDataModule.from_hf_dataset(
+        dataset_name="OpenCoder-LLM/opc-sft-stage2", 
+        save_path="./local/opencoder2", 
+        inst_name="instruction", 
+        resp_name="output", 
+        max_len=8192, 
+        subset="educational_instruct", 
+        strategy="decreasing_v2", 
+    )
+    
