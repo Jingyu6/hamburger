@@ -22,3 +22,12 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
 - 2025/03/07:
     * Explore BLT local encoder
     * Think about what's the main difference here
+
+- 2025/03/17:
+    * Found the best data mix so far
+        - Filtered out other languages
+        - Added more math data
+    * Next step
+        - Understand why the model works well for MBPP but not HumanEval
+        - Understand where the gap is for GSM8K 8-shot CoT
+        - Potentially pre-calculate entropy and do segment strategy ablation
