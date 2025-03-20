@@ -31,3 +31,8 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
         - Understand why the model works well for MBPP but not HumanEval
         - Understand where the gap is for GSM8K 8-shot CoT
         - Potentially pre-calculate entropy and do segment strategy ablation
+- 2025/03/18:
+    * Try zero shot gsm8k + manual answer extraction
+        - 8-shot has 23 invalid answers while 0-shot has 430
+        - 0-shot is only 2 points lower
+        - If 0-shot with manual extraction is higher, that means the model is working bad for few-shot, which might be fixed by adding similar data
