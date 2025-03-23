@@ -1,5 +1,5 @@
+import argparse
 import os
-from copy import deepcopy
 from typing import Any, Callable, Dict, List, Optional
 
 import lightning as L
@@ -297,273 +297,51 @@ class M2DDataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    parser = argparse.ArgumentParser(
+        description="Call the from_hf_dataset class method with command-line arguments."
+    )
+    parser.add_argument("--dataset_name", type=str, default=None, help="Name of the dataset")
+    parser.add_argument("--save_path", type=str, default=None, help="Path to save the dataset")
+    parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Model name to use")
+    parser.add_argument("--inst_name", type=str, default="instruction", help="Key name for instruction")
+    parser.add_argument("--resp_name", type=str, default="response", help="Key name for response")
+    parser.add_argument("--max_num_samples", type=int, default=-1, help="Maximum number of samples to process")
+    parser.add_argument("--empty_cache_every", type=int, default=1024, help="Interval to empty cache")
+    parser.add_argument("--max_len", type=int, default=None, help="Maximum length (if applicable)")
+    parser.add_argument("--filter_fn", type=str, default=None, help="Python expression for filter function")
+    parser.add_argument("--map_fn", type=str, default=None, help="Python expression for map function")
+    parser.add_argument("--save_raw", action="store_true", help="Flag to save raw data")
+    parser.add_argument("--subset", type=str, default=None, help="Subset of the dataset to use")
+    parser.add_argument("--split", type=str, default="train", help="Dataset split to use (e.g., train, test)")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for processing")
+    parser.add_argument("--system_message", type=str, default=None, help="Optional system message")
+    parser.add_argument("--strategy", type=str, default="small_group", help="Strategy to use")
+    parser.add_argument("--distill", action="store_true", help="Flag to enable distillation")
+    parser.add_argument("--distill_model_name", type=str, default=None, help="Model name for distillation")
+    parser.add_argument("--distill_save_path", type=str, default=None, help="Path to save the distilled model")
+    
+    args = parser.parse_args()
+    filter_fn = eval(args.filter_fn) if args.filter_fn else None
+    map_fn = eval(args.map_fn) if args.map_fn else None
 
-    # datasets
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="imone/OpenOrca_FLAN", 
-        save_path="./local/openorca", 
-        filter_fn=lambda sample: sample["condition"] == "GPT4", 
-        max_len=4096, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="nampdn-ai/tiny-codes", 
-        save_path="./local/tinycodepython", 
-        inst_name="prompt", 
-        resp_name="response", 
-        filter_fn=lambda sample: sample["programming_language"] == "Python", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="teknium/openhermes", 
-        save_path="./local/openhermes", 
-        inst_name="instruction", 
-        resp_name="output", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="meta-math/MetaMathQA", 
-        save_path="./local/metamathqa", 
-        inst_name="query", 
-        resp_name="response", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="garage-bAInd/Open-Platypus", 
-        save_path="./local/openplatypus", 
-        inst_name="instruction", 
-        resp_name="output", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="openbmb/UltraInteract_sft", 
-        save_path="./local/ultrainteract", 
-        inst_name="instruction", 
-        resp_name="response", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="ise-uiuc/Magicoder-Evol-Instruct-110K", 
-        save_path="./local/magicoder", 
-        inst_name="instruction", 
-        resp_name="response", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="Vezora/Tested-143k-Python-Alpaca", 
-        save_path="./local/pythonalpaca", 
-        inst_name="instruction", 
-        resp_name="output", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example):
-        return {"problem": example["reannotated_messages"][0]["content"]}
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="ServiceNow-AI/R1-Distill-SFT", 
-        subset="v1", 
-        save_path="./local/r1distill", 
-        inst_name="problem", 
-        resp_name="reannotated_assistant_content", 
-        map_fn=_parse_message, 
-        filter_fn=lambda x: (len(x["problem"]) + len(x["reannotated_assistant_content"])) <= 4096, 
-        system_message="You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. ", 
-        batch_size=2, # since its longer
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example):
-        return {
-            "instruction": example["conversations"][0],
-            "response": example["conversations"][1]
-        }
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="GAIR/lima", 
-        save_path="./local/lima", 
-        map_fn=_parse_message, 
-        batch_size=2, # since its longer 
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example):
-        return {
-            "instruction": example["messages"][0]["content"],
-            "response": example["messages"][1]["content"]
-        }
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="allenai/tulu-v2-sft-mixture", 
-        save_path="./local/tulu", 
-        map_fn=_parse_message, 
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example):
-        return {
-            "instruction": example["conversation"][0]["content"],
-            "response": example["conversation"][1]["content"]
-        }
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="lmsys/lmsys-chat-1m", 
-        save_path="./local/lmsys", 
-        map_fn=_parse_message, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="open-r1/OpenR1-Math-220k", 
-        save_path="./local/openr1math", 
-        inst_name="problem", 
-        resp_name="solution", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="PrimeIntellect/SYNTHETIC-1", 
-        save_path="./local/synthetic1",  
-        inst_name="prompt", 
-        resp_name="llm_response", 
-        system_message="You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. ", 
-        filter_fn=lambda sample: (
-            sample.get("score", None) == 1 and \
-            (len(sample["prompt"]) + len(sample["llm_response"])) <= 8192
-        ),  
-        max_len=8192, 
-        strategy="decreasing_v2",   
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="facebook/natural_reasoning", 
-        save_path="./local/naturalreasoning", 
-        inst_name="question", 
-        resp_name="output", 
-        map_fn=lambda sample: {"output": sample["responses"][0]["response"]}, 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="argilla/ifeval-like-data", 
-        save_path="./local/ifevallike", 
-        inst_name="prompt", 
-        resp_name="response", 
-        subset="filtered", 
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example):
-        return {
-            "instruction": example["conversations"][0]["value"],
-            "response": example["conversations"][1]["value"]
-        }
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="open-r1/OpenThoughts-114k-math", 
-        save_path="./local/openthoughts", 
-        map_fn=_parse_message, 
-        inst_name="problem", 
-        resp_name="solution", 
-        batch_size=1, # since its longer
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example):
-        return {
-            "prompt": "Write python code to solve the following coding question:\n{question}\n".format(question=example["question"]),
-            "response": "```python\n{code}\n```".format(code=example["solutions"][0])
-        }
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="codeparrot/apps", 
-        save_path="./local/apps", 
-        inst_name="prompt", 
-        resp_name="response", 
-        map_fn=_parse_message, 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example):
-        return {
-            "instruction": example["conversations"][0]["value"],
-            "response": example["conversations"][1]["value"]
-        }
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="BAAI/Infinity-Instruct", 
-        save_path="./local/infinityinstruct", 
-        map_fn=_parse_message, 
-        filter_fn=lambda sample: len(sample["instruction"]) + len(sample["response"]) < (8192 * 4), 
-        max_len=8192, 
-        subset="Gen", 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="TIGER-Lab/MathInstruct", 
-        save_path="./local/mathinstruct", 
-        inst_name="instruction", 
-        resp_name="output", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="PawanKrd/math-gpt-4o-200k", 
-        save_path="./local/mathgpt", 
-        inst_name="prompt", 
-        resp_name="response", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="TIGER-Lab/MATH-plus", 
-        save_path="./local/mathplus", 
-        inst_name="instruction", 
-        resp_name="output", 
-        max_len=8192, 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="cognitivecomputations/OpenCoder-LLM_opc-sft-stage1-DolphinLabeled", 
-        save_path="./local/opencoder", 
-        inst_name="instruction", 
-        resp_name="output", 
-        max_len=8192, 
-        subset="filtered_infinity_instruct", 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="OpenCoder-LLM/opc-sft-stage2", 
-        save_path="./local/opencoder2", 
-        inst_name="instruction", 
-        resp_name="output", 
-        max_len=8192, 
-        subset="educational_instruct", 
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="openai/gsm8k", 
-        save_path="./local/gsm8k", 
-        inst_name="question", 
-        resp_name="answer", 
-        subset="main", 
-        split="train",  
-        strategy="decreasing_v2", 
-    )
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="AI-MO/NuminaMath-CoT", 
-        save_path="./local/mathcot", 
-        inst_name="problem", 
-        resp_name="solution", 
-        strategy="decreasing_v2", 
-    )
-    def _parse_message(example): 
-        raw_answer: str = example["response"]
-        raw_question = example["question"]
-        return {
-            "cot_problem": raw_question + " Reason the question and think step by step. Please end with \"The final answer is [answer]\" where [answer] is your solution. ", 
-            "cot_answer": raw_answer.replace("Therefore, the final answer is", "The final answer is")
-        }
-    data = M2DDataModule.from_hf_dataset(
-        dataset_name="ankner/gsm8k-CoT", 
-        save_path="./local/gsm8kcot", 
-        inst_name="cot_problem", 
-        resp_name="cot_answer", 
-        map_fn=_parse_message,  
-        strategy="decreasing_v2", 
+    M2DDataModule.from_hf_dataset(
+        dataset_name=args.dataset_name,
+        save_path=args.save_path,
+        model_name=args.model_name,
+        inst_name=args.inst_name,
+        resp_name=args.resp_name,
+        max_num_samples=args.max_num_samples,
+        empty_cache_every=args.empty_cache_every,
+        max_len=args.max_len,
+        filter_fn=filter_fn,
+        map_fn=map_fn,
+        save_raw=args.save_raw,
+        subset=args.subset,
+        split=args.split,
+        batch_size=args.batch_size,
+        system_message=args.system_message,
+        strategy=args.strategy,
+        distill=args.distill,
+        distill_model_name=args.distill_model_name,
+        distill_save_path=args.distill_save_path,
     )
