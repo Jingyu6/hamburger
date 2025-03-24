@@ -8,13 +8,13 @@ from m2d.config import M2DConfig
 from m2d.data.m2d_data import M2DDataModule
 from m2d.model.llama import M2DLlama
 
-L.seed_everything(227)
-
 # make sure the huge cache file is not in /home
 os.environ["WANDB_CACHE_DIR"] = "/data/data_persistent1/jingyu/wandb_cache"
 
 config = M2DConfig.from_path("./local/train.yaml")
 config.print_config()
+
+L.seed_everything(config.seed)
 
 # create model
 if config.pretrained_ckpt_path is not None:

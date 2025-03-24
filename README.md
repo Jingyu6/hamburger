@@ -8,6 +8,24 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
 - [ ] vLLM or Sglang implementation & weight conversion script
 - [ ] Benchmark output
 
+### Data
+* tinycodepython
+* pythonalpaca
+* opencoder
+* opencoder2
+* magicoder
+
+* openorca
+* openplatypus
+* ifevallike
+* gsm8k
+
+* metamathqa
+* openr1math
+* mathgpt
+* mathinstruct
+* mathplus
+
 ### Logs
 - 2025/02/25: 
     * There seems to be a big performance difference on code using "\n" v.s. \n. 
@@ -45,6 +63,15 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
         - Joint train all weights with 1e-5 lr
         - Consider using LoRA for the base model
 - 2025/03/24:
-    * For GSM8K, the task provides a prompt prefix.
+    * For arc-c, the task provides a prompt prefix.
         - But this would be inconsistent with our training because the any generation should be determined by the model (segmentation), which might cause some ODD problem
         - We can try disabling the prefix and see the result
+    * Result analysis
+        - Validation accuracy
+            * s1 < s2 (lr=1e-5) < joint < s2 (lr=5e-5)
+        - Arc challenge
+            * s1 < s2 (lr=5e-5) < s2 (lr=1e-5) < joint
+        - GSM8K
+            * s1 < s2 (lr=1e-5) < s2 (lr=5e-5) < joint
+        - HumanEval
+            * s1 < s2 (lr=1e-5) < joint < s2 (lr=5e-5)

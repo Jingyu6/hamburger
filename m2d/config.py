@@ -34,6 +34,8 @@ class _LoadableConfig:
 
 @dataclass
 class M2DConfig(_LoadableConfig): 
+    seed: int = 227
+    
     base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct"
     pretrained_ckpt_path: Optional[str] = None
     resume_ckpt_path: Optional[str] = None
