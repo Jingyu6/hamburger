@@ -44,3 +44,7 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
         - First freeze all except for newly introduced modules with 1e-4 lr
         - Joint train all weights with 1e-5 lr
         - Consider using LoRA for the base model
+- 2025/03/24:
+    * For GSM8K, the task provides a prompt prefix.
+        - But this would be inconsistent with our training because the any generation should be determined by the model (segmentation), which might cause some ODD problem
+        - We can try disabling the prefix and see the result
