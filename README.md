@@ -36,3 +36,11 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
         - 8-shot has 23 invalid answers while 0-shot has 430
         - 0-shot is only 2 points lower
         - If 0-shot with manual extraction is higher, that means the model is working bad for few-shot, which might be fixed by adding similar data
+- 2025/03/23:
+    * Seems like training 3B models results in larger gap.
+        - The gap is larger when using the 3D model to segment data
+        - Probably due to the fact that we didn't take their confidence difference into account
+    * Trying a two-stage training to avoid catastrophic forgetting
+        - First freeze all except for newly introduced modules with 1e-4 lr
+        - Joint train all weights with 1e-5 lr
+        - Consider using LoRA for the base model
