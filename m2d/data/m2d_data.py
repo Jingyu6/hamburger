@@ -133,6 +133,7 @@ class M2DDataModule(L.LightningDataModule):
         distill: bool = False, 
         distill_model_name: Optional[str] = None, 
         distill_save_path: Optional[str] = None, 
+        data_files: Optional[str] = None, 
         **kwargs
     ):
         assert save_path is not None
@@ -147,17 +148,23 @@ class M2DDataModule(L.LightningDataModule):
         assert dataset_name is not None
         print(f"Create new {cls.__name__} dataset from {dataset_name}.")
 
+        if data_files is not None:
+            data_files = list(data_files.split(','))
+        else:
+            data_files = None
+
         raw_dataset = load_dataset(
             dataset_name,
             name=subset,  
-            split=split
+            split=split, 
+            data_files=data_files
         ).shuffle() # Randomize length distribution
-
-        if map_fn is not None:
-            raw_dataset = raw_dataset.map(map_fn, num_proc=8)
 
         if filter_fn is not None:
             raw_dataset = raw_dataset.filter(filter_fn)
+
+        if map_fn is not None:
+            raw_dataset = raw_dataset.map(map_fn, num_proc=8)
 
         if max_num_samples > 0:
             raw_dataset = raw_dataset.select(range(max_num_samples))
@@ -319,6 +326,7 @@ if __name__ == "__main__":
     parser.add_argument("--distill", action="store_true", help="Flag to enable distillation")
     parser.add_argument("--distill_model_name", type=str, default=None, help="Model name for distillation")
     parser.add_argument("--distill_save_path", type=str, default=None, help="Path to save the distilled model")
+    parser.add_argument("--data_files", type=str, default=None, help="Path to download partial data")
     
     args = parser.parse_args()
     filter_fn = eval(args.filter_fn) if args.filter_fn else None
@@ -343,5 +351,6 @@ if __name__ == "__main__":
         strategy=args.strategy,
         distill=args.distill,
         distill_model_name=args.distill_model_name,
-        distill_save_path=args.distill_save_path,
+        distill_save_path=args.distill_save_path, 
+        data_files=args.data_files
     )
