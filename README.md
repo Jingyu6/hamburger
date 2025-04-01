@@ -75,3 +75,7 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
             * s1 < s2 (lr=1e-5) < s2 (lr=5e-5) < joint
         - HumanEval
             * s1 < s2 (lr=1e-5) < joint < s2 (lr=5e-5)
+- 2025/04/01:
+    * We found that micro step decoder might have limited attention. 
+        - Based on this hypothesis, we decided to segment the data using sliding window, which will turn the full conditional entropy to limited history conditional entropy. 
+        - We test if the confidence calculated based on this will be more useful for deciding what tokens to merge. 
