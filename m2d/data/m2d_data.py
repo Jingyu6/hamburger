@@ -134,6 +134,7 @@ class M2DDataModule(L.LightningDataModule):
         distill_model_name: Optional[str] = None, 
         distill_save_path: Optional[str] = None, 
         data_files: Optional[str] = None, 
+        sliding_window: Optional[int] = None, 
         **kwargs
     ):
         assert save_path is not None
@@ -202,7 +203,8 @@ class M2DDataModule(L.LightningDataModule):
         segmentor = Segmentor(
             model=model, 
             tokenizer=tokenizer, 
-            strategy=strategy
+            strategy=strategy, 
+            sliding_window=sliding_window
         )
 
         def process_batch(batch, indices):
@@ -327,7 +329,8 @@ if __name__ == "__main__":
     parser.add_argument("--distill_model_name", type=str, default=None, help="Model name for distillation")
     parser.add_argument("--distill_save_path", type=str, default=None, help="Path to save the distilled model")
     parser.add_argument("--data_files", type=str, default=None, help="Path to download partial data")
-    
+    parser.add_argument("--sliding_window", type=int, default=None, help="Whether to apply sliding window. ")
+
     args = parser.parse_args()
     filter_fn = eval(args.filter_fn) if args.filter_fn else None
     map_fn = eval(args.map_fn) if args.map_fn else None
@@ -352,5 +355,6 @@ if __name__ == "__main__":
         distill=args.distill,
         distill_model_name=args.distill_model_name,
         distill_save_path=args.distill_save_path, 
-        data_files=args.data_files
+        data_files=args.data_files, 
+        sliding_window=args.sliding_window
     )

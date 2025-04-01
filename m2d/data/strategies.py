@@ -31,7 +31,8 @@ def _confidence_to_thres_upper_bound(
     
     return entropy
 
-MIN_THRESHOLD = _confidence_to_thres_upper_bound(confidence=0.95)
+MIN_GROUP_THRES = _confidence_to_thres_upper_bound(confidence=0.95)
+SLIDING_THRES = _confidence_to_thres_upper_bound(confidence=0.7)
 
 def _decreasing(
     entropy: List[float], 
@@ -97,10 +98,37 @@ def _decreasing_v2(
     assert sum(steps) == len(entropy)
     return steps
 
+def _sliding(
+    entropy: List[float], 
+    max_steps: int, 
+    min_threshold: float = SLIDING_THRES, 
+    **kwargs
+):
+    steps = []
+    last_cnt = 0
+    last_max = -1
+    for e in entropy:
+        if e < min_threshold \
+            and last_cnt < max_steps:
+            # append to current one
+            last_cnt += 1
+            last_max = max(last_max, e)
+        else:
+            # start a new one
+            if last_cnt > 0:
+                steps.append(last_cnt)
+            last_cnt = 1
+            last_max = e
+            
+    if last_cnt > 0:
+        steps.append(last_cnt)
+    assert sum(steps) == len(entropy)
+    return steps
+
 def _small_group(
     entropy: List[float], 
     max_steps: int, 
-    min_threshold: float = MIN_THRESHOLD, 
+    min_threshold: float = MIN_GROUP_THRES, 
     **kwargs
 ):
     steps = []
@@ -125,5 +153,6 @@ def _small_group(
 STRATEGIES = {
     "decreasing": _decreasing, 
     "decreasing_v2": _decreasing_v2, 
+    "sliding": _sliding, 
     "small_group": _small_group
 }

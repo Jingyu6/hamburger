@@ -11,13 +11,15 @@ class Segmentor:
         self, 
         model: AutoModelForCausalLM, 
         tokenizer: AutoTokenizer, 
-        strategy: str
+        strategy: str, 
+        sliding_window: Optional[int] = None
     ):
         self.model: AutoModelForCausalLM = model
         self.tokenizer: AutoTokenizer = tokenizer
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_steps = 4
         self.step_strategy = STRATEGIES[strategy]
+        self.sliding_window = sliding_window
 
     def _calc_steps(self, entropy: List[float]):
         return self.step_strategy(entropy=entropy, max_steps=self.max_steps)
@@ -67,7 +69,8 @@ class Segmentor:
         logits = self.model.forward(
             input_ids=input_ids,
             attention_mask=attention_mask, 
-            use_cache=False
+            use_cache=False, 
+            sliding_window=self.sliding_window
         ).logits
 
         results = {
@@ -108,6 +111,7 @@ if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(
         "meta-llama/Llama-3.2-1B-Instruct", 
         trust_remote_code=True, 
+        attn_implementation="flash_attention_2", 
         torch_dtype=torch.bfloat16, 
         device_map="auto"
     )
@@ -115,7 +119,8 @@ if __name__ == "__main__":
     segmentor = Segmentor(
         model=model, 
         tokenizer=tokenizer, 
-        strategy="decreasing_v2"
+        strategy="sliding", 
+        sliding_window=4
     )
 
     print(segmentor.segment(
