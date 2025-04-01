@@ -48,5 +48,6 @@ print(token_str_list)
 print(token_entropy_list)
 plot_entropies(
     token_str_list=token_str_list, 
-    token_entropy_list=token_entropy_list
+    token_entropy_list=token_entropy_list, 
+    save_path='./local/entropies.png'
 )

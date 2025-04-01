@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 
 def plot_entropies(
     token_str_list: List[str], 
-    token_entropy_list: List[float]
+    token_entropy_list: List[float], 
+    save_path: str
 ):
     assert len(token_str_list) == len(token_entropy_list)
     token_str_list = [s.replace("\n", "\\n") for s in token_str_list]
@@ -24,4 +25,4 @@ def plot_entropies(
     ax.invert_yaxis()
     ax.margins(y=0)
     plt.tight_layout()
-    plt.savefig('./local/entropies.png', dpi=400)
+    plt.savefig(save_path, dpi=400)

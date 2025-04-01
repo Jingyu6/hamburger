@@ -8,6 +8,7 @@ model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Llama-3.2-1B-Instruct", 
     trust_remote_code=True, 
     torch_dtype=torch.bfloat16, 
+    attn_implementation="flash_attention_2",
     device_map="auto", 
 )
 
@@ -27,9 +28,12 @@ inputs = tokenizer.apply_chat_template(
 input_ids = inputs["input_ids"].cuda()
 attention_mask = inputs["attention_mask"].cuda()
 
+sliding_window = int(input("Sliding window size: "))
+
 logits = model.forward(
     input_ids=input_ids,
-    attention_mask=attention_mask
+    attention_mask=attention_mask, 
+    sliding_window=sliding_window if sliding_window > 0 else None
 ).logits[0]
 
 token_str_list = tokenizer.batch_decode(input_ids[0])
@@ -40,5 +44,6 @@ token_entropy_list = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
 
 plot_entropies(
     token_str_list=token_str_list[1:], 
-    token_entropy_list=token_entropy_list[:-1]
+    token_entropy_list=token_entropy_list[:-1], 
+    save_path=f'./local/entropies_sw={sliding_window}.png'
 )
