@@ -396,8 +396,8 @@ class M2DLlama(L.LightningModule):
                 # slightly larger lr for the embedding and lm head (tied)
                 {"params": [p for n, p in self.model.named_parameters() if "embed_tokens" not in n], "lr": 3e-5}, 
                 # larger lr for grafted modules
-                {"params": self.comp_embedder.gate.parameters()}, 
-                {"params": self.comp_embedder.pos_weight.parameters(), "lr": 5e-4}, 
+                {"params": self.comp_embedder.gate.parameters(), "lr": 1e-3}, 
+                {"params": self.comp_embedder.pos_weight.parameters(), "lr": 3e-3}, 
                 {"params": self.micro_step_decoder.parameters()}, 
             ], lr=1e-4
         )

@@ -2,6 +2,7 @@ from typing import List, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from transformers.models.llama import LlamaConfig
 from transformers.models.llama.modeling_llama import (LlamaDecoderLayer,
@@ -23,10 +24,18 @@ class CompositionalEmbedder(nn.Module):
         self.emb_size = embedding.weight.shape[-1]
         self.emb_dtype = self.embedding.weight.dtype
 
-        self.gate = nn.Linear(
-            in_features=self.emb_size, 
-            out_features=self.emb_size, 
-            dtype=self.emb_dtype
+        self.gate = nn.Sequential(
+            nn.Linear(
+                in_features=self.emb_size, 
+                out_features=self.emb_size, 
+                dtype=self.emb_dtype
+            ), 
+            nn.SiLU(), 
+            nn.Linear(
+                in_features=self.emb_size, 
+                out_features=self.emb_size, 
+                dtype=self.emb_dtype
+            )
         )
 
         self.pos_weight = nn.Linear(
@@ -41,15 +50,15 @@ class CompositionalEmbedder(nn.Module):
             # we dont do merging
             return embeddings
         # apply gating
-        gates = torch.sigmoid(self.gate.forward(embeddings))
+        gates = F.softmax(self.gate.forward(embeddings), dim=0)
         embeddings = gates * embeddings
         # apply position info
         pad_embeddings = torch.zeros((self.max_steps - emb_len, self.emb_size), dtype=self.emb_dtype).to(embeddings.device)
-        pos_weights = self.pos_weight.forward(
+        pos_weights = F.softmax(self.pos_weight.forward(
             torch.concat([embeddings, pad_embeddings], dim=0).view(-1)
-        )[:emb_len].unsqueeze(-1)
+        )[:emb_len], dim=-1).unsqueeze(-1)
 
-        return (embeddings * pos_weights).mean(dim=0, keepdim=True)
+        return (embeddings * pos_weights).sum(dim=0, keepdim=True).to(self.emb_dtype)
 
     def single_forward(
         self,
@@ -124,7 +133,7 @@ class ConditionalMicroStepDecoder(nn.Module):
         self.micro_stop_token_id = micro_stop_token_id
         self.max_steps = max_steps
         assert self.max_steps >= 1
-        self.num_layers = 2
+        self.num_layers = 4
         self.decoders = nn.ModuleList([
             LlamaDecoderLayer(config=config, layer_idx=layer_idx) 
             for layer_idx in range(self.num_layers)])
