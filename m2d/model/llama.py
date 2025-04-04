@@ -330,7 +330,28 @@ class M2DLlama(L.LightningModule):
         # excluded accuracy (normalized)
         acc_exc = torch.sum(correct_mask & non_stop_mask) / torch.sum(non_stop_mask)
 
-        return acc_all, acc_exc
+        metrics = {
+            "eval_token_acc_all": acc_all, 
+            "eval_token_acc_excluded": acc_exc
+        }
+
+        def _calc_step_mask(step):
+            mask = torch.zeros_like(non_stop_mask, dtype=torch.bool)
+            last = -1
+            for i in range(mask.shape[0]):
+                if non_stop_mask[i] == False:
+                    last = i
+                elif i - last == step:
+                    mask[i] = True
+            return mask
+
+        # per-step metrics
+        for step in range(1, self.max_steps + 1):
+            step_mask = _calc_step_mask(step)
+            acc_step = torch.sum(correct_mask & step_mask) / (torch.sum(step_mask) + 1e-9)
+            metrics[f"eval_token_acc_s{step}"] = acc_step
+
+        return metrics
 
     def training_step(self, batch, batch_idx):
         """
@@ -375,14 +396,16 @@ class M2DLlama(L.LightningModule):
         logits = self.forward(**batch)
         targets = self._get_targets(**batch)
         loss = self._calc_loss(logits, targets)
-        acc_all, acc_exc = self._calc_accuracy(logits, targets)
 
-        self.log_dict({
-                "eval_loss": loss, 
-                "eval_perplexity": torch.exp(loss), 
-                "eval_token_acc_all": acc_all, 
-                "eval_token_acc_excluded": acc_exc, 
-            }, 
+        log_dict = {
+            "eval_loss": loss, 
+            "eval_perplexity": torch.exp(loss)
+        }
+
+        log_dict.update(self._calc_accuracy(logits, targets))
+
+        self.log_dict(
+            log_dict, 
             prog_bar=True, 
             logger=True, 
             sync_dist=True, 
