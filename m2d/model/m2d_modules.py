@@ -50,15 +50,15 @@ class CompositionalEmbedder(nn.Module):
             # we dont do merging
             return embeddings
         # apply gating
-        gates = self.gate.forward(embeddings)
+        gates = F.softmax(self.gate.forward(embeddings), dim=0)
+        embeddings = gates * embeddings
         # apply position info
         pad_embeddings = torch.zeros((self.max_steps - emb_len, self.emb_size), dtype=self.emb_dtype).to(embeddings.device)
-        pos_weights = self.pos_weight.forward(
+        pos_weights = F.softmax(self.pos_weight.forward(
             torch.concat([embeddings, pad_embeddings], dim=0).view(-1)
-        )[:emb_len].unsqueeze(-1)
-        weights = F.softmax(gates + pos_weights, dim=0)
+        )[:emb_len], dim=-1).unsqueeze(-1)
 
-        return (embeddings * weights).sum(dim=0, keepdim=True).to(self.emb_dtype)
+        return (embeddings * pos_weights).sum(dim=0, keepdim=True).to(self.emb_dtype)
 
     def single_forward(
         self,
