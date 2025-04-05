@@ -40,10 +40,15 @@ class M2DDataModule(L.LightningDataModule):
                 path = parsed_save_path[0]
                 replicate_cnt = 1
                 if len(parsed_save_path) == 2:
-                    replicate_cnt = int(parsed_save_path[-1])
+                    replicate_cnt = float(parsed_save_path[-1])
                 ds = load_from_disk(path)
-                data_list.extend([ds] * replicate_cnt)
-                self.data_summary[path] = len(ds) * replicate_cnt
+                if replicate_cnt >= 1:
+                    data_list.extend([ds] * int(replicate_cnt))
+                    self.data_summary[path] = len(ds) * replicate_cnt
+                else:
+                    new_len = int(len(ds) * replicate_cnt)
+                    data_list.append(ds.take(new_len))
+                    self.data_summary[path] = new_len
 
             data = concatenate_datasets(data_list)
 
