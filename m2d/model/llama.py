@@ -179,6 +179,10 @@ class M2DLlama(L.LightningModule):
                 # stop if we hit micro stop
                 if pred_token[0] == self.micro_stop_token_id:
                     break
+
+                if micro_idx > 0 and config.micro_step_confidence is not None:
+                    if self._get_prob(logits).item() < config.micro_step_confidence:
+                        break
                 
                 # update hidden
                 hiddens = self.comp_embedder.embedding.forward(
@@ -214,6 +218,13 @@ class M2DLlama(L.LightningModule):
             "micro_token_output": micro_token_output, 
             "speedup": all_token_ids.shape[0] / len(output_token_ids)
         }
+    
+    def _get_prob(self, logits: torch.Tensor, token_id: Optional[torch.Tensor] = None):
+        logits = logits.view(-1)
+        if token_id is None:
+            token_id = logits.argmax(dim=-1, keepdim=True)
+        probs = F.softmax(logits, dim=-1)
+        return probs[token_id]
 
     def forward(
         self, 
