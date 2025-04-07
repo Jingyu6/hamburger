@@ -43,6 +43,8 @@ class M2DLitAPI(ls.LitAPI):
             config=GEN_CONFIG
         )["output"]
 
+        self.model.report.get_speedup()
+
         yield FORMATTER.format_output(
             task=context.get("task", ""), 
             output_str=raw_output

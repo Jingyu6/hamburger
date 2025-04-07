@@ -23,6 +23,29 @@ from m2d.model.teacher import DistillTeacher
 utils.prepare_fa2_from_position_ids = prepare_fa2_from_position_ids
 
 
+class SpeedupReport:
+    def __init__(self):
+        self.total_queries = 0
+        self.speedup = 0
+        self.reset()
+
+    def add_query_stats(self, macro, micro):
+        self.total_queries += 1
+        self.speedup += (1.0 * micro / macro)
+    
+    def reset(self):
+        self.total_queries = 0
+        self.speedup = 0
+
+    def get_speedup(self):
+        if self.total_queries == 0:
+            print("No records yet.")
+            return None
+        avg_speedup = self.speedup / self.total_queries * 100
+        print(f"Total number of queries: {self.total_queries}. Avg speedup: {avg_speedup:.2f}%")
+        return avg_speedup
+
+
 class M2DLlama(L.LightningModule):
     def __init__(
         self, 
@@ -64,6 +87,8 @@ class M2DLlama(L.LightningModule):
         if distill_kl is not None:
             self.teacher = DistillTeacher(teacher_model_name=base_model_name)
             self.kl_loss = nn.KLDivLoss(reduction="none")
+
+        self.report = SpeedupReport()
 
     @torch.inference_mode
     def generate(
@@ -211,6 +236,11 @@ class M2DLlama(L.LightningModule):
         if config.remove_think:
             # remove the think block in the output
             output = re.sub(r"<think>.*?</think>[\s\r\n]*", "", output, flags=re.DOTALL)
+
+        self.report.add_query_stats(
+            macro=len(output_token_ids), 
+            micro=all_token_ids.shape[0]
+        )
 
         return {
             "output": output, 

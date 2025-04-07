@@ -61,7 +61,7 @@ class GenConfig(_LoadableConfig):
     repetition_penalty: Optional[float] = None
     remove_think: bool = False
     extra_think_steps: int = 512
-    micro_step_confidence: Optional[float] = 0.7
+    micro_step_confidence: Optional[float] = 0.75
 
     @property
     def decode_steps(self):
