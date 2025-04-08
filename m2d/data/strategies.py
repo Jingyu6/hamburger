@@ -35,7 +35,7 @@ MIN_GROUP_THRES = _confidence_to_thres_upper_bound(confidence=0.95)
 SLIDING_THRES = _confidence_to_thres_upper_bound(confidence=0.7)
 
 def _decreasing(
-    entropy: List[float], 
+    values: List[float], 
     max_steps: int, 
     ratio_threshold: float = 0.3, 
     **kwargs
@@ -43,7 +43,7 @@ def _decreasing(
     steps = []
     last_cnt = 0
     last_max = -1
-    for e in entropy:
+    for e in values:
         if e > ratio_threshold * last_max or last_cnt >= max_steps:
             # start new segment
             steps.append(last_cnt)
@@ -56,11 +56,11 @@ def _decreasing(
     if last_cnt > 0:
         steps.append(last_cnt)
     steps = steps[1:]
-    assert sum(steps) == len(entropy)
+    assert sum(steps) == len(values)
     return steps
 
 def _decreasing_v2(
-    entropy: List[float], 
+    values: List[float], 
     max_steps: int, 
     min_threshold: float = 0.05, 
     ratio_threshold: float = 0.3, 
@@ -80,7 +80,7 @@ def _decreasing_v2(
     steps = []
     last_cnt = 0
     last_max = -1
-    for e in entropy:
+    for e in values:
         if (e < min_threshold or e < last_max * ratio_threshold) \
             and last_cnt < max_steps:
             # append to current one
@@ -95,11 +95,11 @@ def _decreasing_v2(
             
     if last_cnt > 0:
         steps.append(last_cnt)
-    assert sum(steps) == len(entropy)
+    assert sum(steps) == len(values)
     return steps
 
 def _sliding(
-    entropy: List[float], 
+    values: List[float], 
     max_steps: int, 
     min_threshold: float = SLIDING_THRES, 
     **kwargs
@@ -107,7 +107,7 @@ def _sliding(
     steps = []
     last_cnt = 0
     last_max = -1
-    for e in entropy:
+    for e in values:
         if e < min_threshold \
             and last_cnt < max_steps:
             # append to current one
@@ -122,18 +122,18 @@ def _sliding(
             
     if last_cnt > 0:
         steps.append(last_cnt)
-    assert sum(steps) == len(entropy)
+    assert sum(steps) == len(values)
     return steps
 
 def _small_group(
-    entropy: List[float], 
+    values: List[float], 
     max_steps: int, 
     min_threshold: float = MIN_GROUP_THRES, 
     **kwargs
 ):
     steps = []
     last_cnt = 0
-    for e in entropy:
+    for e in values:
         if e > min_threshold:
             if last_cnt > 0:
                 steps.append(last_cnt)
@@ -146,7 +146,7 @@ def _small_group(
             last_cnt += 1
     if last_cnt > 0:
         steps.append(last_cnt)
-    assert sum(steps) == len(entropy)
+    assert sum(steps) == len(values)
     return steps
 
 

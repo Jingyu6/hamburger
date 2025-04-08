@@ -12,6 +12,7 @@ class Segmentor:
         model: AutoModelForCausalLM, 
         tokenizer: AutoTokenizer, 
         strategy: str, 
+        metric: str = "entropy", 
         sliding_window: Optional[int] = None
     ):
         self.model: AutoModelForCausalLM = model
@@ -19,10 +20,12 @@ class Segmentor:
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_steps = 4
         self.step_strategy = STRATEGIES[strategy]
+        assert metric in ["entropy", "probability"]
+        self.metric = metric
         self.sliding_window = sliding_window
 
-    def _calc_steps(self, entropy: List[float]):
-        return self.step_strategy(entropy=entropy, max_steps=self.max_steps)
+    def _calc_steps(self, values: List[float]):
+        return self.step_strategy(values=values, max_steps=self.max_steps)
 
     @torch.inference_mode
     def segment(
@@ -88,11 +91,17 @@ class Segmentor:
             token_cnt = sum(mask)
             # logits_{i - 1} means the prediction of token_{i}
             probs = torch.nn.functional.softmax(logit[inst_len - 1:token_cnt - 1], dim=-1)
-            log_probs = torch.nn.functional.log_softmax(logit[inst_len - 1:token_cnt - 1], dim=-1)
-            entropy = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
             inputs = inputs[:token_cnt]
-            steps = self._calc_steps(entropy)
+
+            if self.metric == "entropy":
+                log_probs = torch.nn.functional.log_softmax(logit[inst_len - 1:token_cnt - 1], dim=-1)
+                values = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
+            elif self.metric == "probability":
+                values = probs.cpu()[torch.arange(token_cnt - inst_len), torch.LongTensor(inputs[inst_len:])].tolist()
+            else:
+                raise ValueError(f"Unknown segmentation metric: {self.metric}.")
             
+            steps = self._calc_steps(values)
             results["input_ids"].append(inputs)
             results["steps"].append(steps)
         
