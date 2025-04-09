@@ -55,7 +55,8 @@ class CompositionalEmbedder(nn.Module):
             torch.concat([embeddings, self.pos_weight[:emb_len]], dim=-1)
         ), dim=0)
 
-        return embeddings.mean(dim=0) + (embeddings * gates).sum(dim=0, keepdim=True).to(self.emb_dtype)
+        return embeddings.mean(dim=0, keepdim=True) + \
+            (embeddings * gates).sum(dim=0, keepdim=True).to(self.emb_dtype)
 
     def single_forward(
         self,
