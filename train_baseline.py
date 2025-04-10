@@ -27,7 +27,8 @@ def process_fn(example):
 
 def get_dataset(data_path: str):
     if os.path.exists(data_path):
-        train_ds = load_from_disk(data_path)
+        train_ds = load_from_disk(data_path + "/train")
+        test_ds = load_from_disk(data_path + "/test")
     else:
         config = M2DConfig.from_path("./local/train.yaml")
         config.print_config()
@@ -38,17 +39,21 @@ def get_dataset(data_path: str):
             batch_size=config.batch_size, 
         )
 
-        data_module.setup()
-
         # train dataset
-        train_ds = data_module.train_data.map(
+        train_ds = data_module.train_data.take(16384 * 8 * 8 * 2).map(
             process_fn, 
             remove_columns=data_module.train_data.column_names
         )
 
-        train_ds.save_to_disk(data_path, max_shard_size="1GB")
+        test_ds = data_module.test_data.map(
+            process_fn, 
+            remove_columns=data_module.test_data.column_names
+        )
 
-    return train_ds
+        train_ds.save_to_disk(data_path + "/train", max_shard_size="1GB")
+        test_ds.save_to_disk(data_path + "/test", max_shard_size="1GB")
+
+    return train_ds, test_ds
 
 
 class CustomDataCollator:
@@ -100,9 +105,10 @@ def main():
 
     config = TrainingArguments(
         output_dir="./local/baseline", 
-        run_name="sft_llama_1b", 
+        run_name="baseline", 
         per_device_train_batch_size=2, 
-        gradient_accumulation_steps=4, 
+        per_device_eval_batch_size=2, 
+        gradient_accumulation_steps=8, 
         learning_rate=1e-5, 
         num_train_epochs=1, 
         logging_steps=32, 
@@ -110,16 +116,19 @@ def main():
         gradient_checkpointing_kwargs={'use_reentrant':False}, 
         bf16=True, 
         fsdp="full_shard", 
-        report_to="none", 
+        eval_strategy="steps", 
+        eval_steps=512, 
+        report_to="wandb", 
         max_steps=16384
     )
 
-    train_dataset = get_dataset("/data/data_persistent1/jingyu/m2d/baseline_data") 
+    train_dataset, test_dataset = get_dataset("/data/data_persistent1/jingyu/m2d/baseline_data") 
 
     trainer = Trainer(
         model=model, 
         args=config, 
         train_dataset=train_dataset, 
+        eval_dataset=test_dataset, 
         data_collator=CustomDataCollator(tokenizer=tokenizer)
     )
 
@@ -128,14 +137,14 @@ def main():
     # saving
     if trainer.is_fsdp_enabled:
         trainer.accelerator.state.fsdp_plugin.set_state_dict_type("FULL_STATE_DICT")
-    trainer.save_model("./local/baseline/finish")
-    tokenizer.save_pretrained("./local/baseline/finish")
+    trainer.save_model("/data/data_persistent1/jingyu/m2d/ckpts/baseline")
+    tokenizer.save_pretrained("/data/data_persistent1/jingyu/m2d/ckpts/baseline")
 
     trainer.accelerator.wait_for_everyone()
 
 
 if __name__ == "__main__": 
     """
-        accelerate launch train_baseline.py
+        WANDB_PROJECT=m2d accelerate launch train_baseline.py
     """
     main()
