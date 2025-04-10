@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 
-from m2d.plot_utils import plot_entropies
+from m2d.plot_utils import plot_values
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct", use_fast=True)
 model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
@@ -46,8 +46,8 @@ token_entropy_list = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
 
 print(token_str_list)
 print(token_entropy_list)
-plot_entropies(
+plot_values(
     token_str_list=token_str_list, 
-    token_entropy_list=token_entropy_list, 
+    value_list=token_entropy_list, 
     save_path='./local/entropies.png'
 )

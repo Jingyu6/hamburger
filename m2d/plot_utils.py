@@ -3,17 +3,17 @@ from typing import List
 import matplotlib.pyplot as plt
 
 
-def plot_entropies(
+def plot_values(
     token_str_list: List[str], 
-    token_entropy_list: List[float], 
+    value_list: List[float], 
     save_path: str
 ):
-    assert len(token_str_list) == len(token_entropy_list)
+    assert len(token_str_list) == len(value_list)
     token_str_list = [s.replace("\n", "\\n") for s in token_str_list]
     _, ax = plt.subplots(figsize=(4, 16))
     ax.barh(
-        range(len(token_entropy_list)), 
-        token_entropy_list
+        range(len(value_list)), 
+        value_list
     )
 
     ax.set_yticks(

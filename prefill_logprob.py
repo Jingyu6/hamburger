@@ -1,7 +1,8 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from m2d.plot_utils import plot_entropies
+from m2d.plot_utils import plot_values
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", use_fast=True)
 model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
@@ -29,21 +30,39 @@ input_ids = inputs["input_ids"].cuda()
 attention_mask = inputs["attention_mask"].cuda()
 
 sliding_window = int(input("Sliding window size: "))
+while True:
+    mode = input("Visualize mode [entropy, prob, attn]: ")
+    if mode in ["entropy", "prob", "attn"]:
+        break
 
-logits = model.forward(
+output: CausalLMOutputWithPast = model.forward(
     input_ids=input_ids,
     attention_mask=attention_mask, 
-    sliding_window=sliding_window if sliding_window > 0 else None
-).logits[0]
+    output_attentions=mode == "attn", 
+    sliding_window=sliding_window if sliding_window > 0 else None, 
+    return_dict=True
+)
 
 token_str_list = tokenizer.batch_decode(input_ids[0])
 
-probs = torch.nn.functional.softmax(logits, dim=-1)
-log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-token_entropy_list = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()
+logits = output.logits[0]
 
-plot_entropies(
+if mode == "entropy":
+    probs = torch.nn.functional.softmax(logits, dim=-1)
+    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+    value_list = (-torch.sum(probs * log_probs, dim=-1)).cpu().tolist()[:-1]
+elif mode == "prob":
+    # N, V
+    probs = torch.nn.functional.softmax(logits[:-1], dim=-1).cpu()
+    ids = input_ids[0][1:].cpu()
+    value_list = probs[torch.arange(len(ids)): ids].tolist()
+elif mode == "attn":
+    attn = output.attentions
+else:
+    raise ValueError
+
+plot_values(
     token_str_list=token_str_list[1:], 
-    token_entropy_list=token_entropy_list[:-1], 
-    save_path=f'./local/entropies_sw={sliding_window}.png'
+    value_list=value_list, 
+    save_path=f'./local/{mode}_sw={sliding_window}.png'
 )
