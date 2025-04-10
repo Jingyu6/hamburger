@@ -31,14 +31,13 @@ attention_mask = inputs["attention_mask"].cuda()
 
 sliding_window = int(input("Sliding window size: "))
 while True:
-    mode = input("Visualize mode [entropy, prob, attn]: ")
-    if mode in ["entropy", "prob", "attn"]:
+    mode = input("Visualize mode [entropy, prob]: ")
+    if mode in ["entropy", "prob"]:
         break
 
 output: CausalLMOutputWithPast = model.forward(
     input_ids=input_ids,
-    attention_mask=attention_mask, 
-    output_attentions=mode == "attn", 
+    attention_mask=attention_mask,
     sliding_window=sliding_window if sliding_window > 0 else None, 
     return_dict=True
 )
@@ -55,9 +54,7 @@ elif mode == "prob":
     # N, V
     probs = torch.nn.functional.softmax(logits[:-1], dim=-1).cpu()
     ids = input_ids[0][1:].cpu()
-    value_list = probs[torch.arange(len(ids)): ids].tolist()
-elif mode == "attn":
-    attn = output.attentions
+    value_list = probs[torch.arange(len(ids)), ids].tolist()
 else:
     raise ValueError
 
