@@ -79,3 +79,16 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
     * We found that micro step decoder might have limited attention. 
         - Based on this hypothesis, we decided to segment the data using sliding window, which will turn the full conditional entropy to limited history conditional entropy. 
         - We test if the confidence calculated based on this will be more useful for deciding what tokens to merge. 
+- 2025/04/10:
+    * We found that using confidence to early stop can substantially improve the quality. 
+    * We found that using a residual + dimension-wise softmax for merger is helpful.
+
+### Some Studies
+
+- What is a better segmentation strategy? 
+    * Attention based method (including sparsity). 
+    * Sliding window to constraint history dependency?
+    * Entropy v.s. confidence. 
+    * Refined segmentation? Using trained model to further refine segmentation?
+
+- Look at the attention map of trained model, both for the macro and micro step. 
