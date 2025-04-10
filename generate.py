@@ -9,7 +9,7 @@ L.seed_everything(227)
 
 # create model
 m2d_model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "./local/ckpts/m2d-llama-1B-finish.ckpt", 
+    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-merge-finish.ckpt", 
     map_location='cpu'
 ).to('cuda')
 
@@ -46,8 +46,6 @@ while True:
 
         print("================================")
         print("Output:\n", output["output"])
-        print("================================")
-        print("Token Output:\n", output["token_output"])
         print("================================")
         print("Micro Token Output:\n", output["micro_token_output"])
         print("================================")

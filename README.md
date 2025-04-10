@@ -92,3 +92,4 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
     * Refined segmentation? Using trained model to further refine segmentation?
 
 - Look at the attention map of trained model, both for the macro and micro step. 
+    * Micro step looks pretty decent, attention scores are pretty well distributed. i.e. all context tokens seem to be used fairly evenly. 

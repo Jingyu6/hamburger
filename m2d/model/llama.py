@@ -133,6 +133,7 @@ class M2DLlama(L.LightningModule):
         # TODO: refactor later
         history_ids = input_ids.clone()
         output_token_ids = []
+        output_token_probs = []
         total_len = seq_len
 
         # MACRO STEP
@@ -205,8 +206,11 @@ class M2DLlama(L.LightningModule):
                 if pred_token[0] == self.micro_stop_token_id:
                     break
 
+                prob = self._get_prob(logits).item()
+                output_token_probs.append(prob)
+
                 if micro_idx > 0 and config.micro_step_confidence is not None:
-                    if self._get_prob(logits).item() < config.micro_step_confidence:
+                    if prob < config.micro_step_confidence:
                         break
                 
                 # update hidden
@@ -230,9 +234,13 @@ class M2DLlama(L.LightningModule):
         
         all_token_ids = torch.concat(output_token_ids, dim=0).cpu()
         output = self.tokenizer.decode(all_token_ids, skip_special_tokens=True)
-        micro_token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(output_token_ids))
-        token_output = "\033[42m \033[0m".join(self.tokenizer.batch_decode(all_token_ids.view(-1)))
-        
+        token_str_list = self.tokenizer.batch_decode(all_token_ids.view(-1))
+        token_output = "\033[42m \033[0m".join(self._color_output(
+            token_str_list, 
+            output_token_probs, 
+            [len(x) for x in output_token_ids]
+        ))
+
         if config.remove_think:
             # remove the think block in the output
             output = re.sub(r"<think>.*?</think>[\s\r\n]*", "", output, flags=re.DOTALL)
@@ -244,10 +252,28 @@ class M2DLlama(L.LightningModule):
 
         return {
             "output": output, 
-            "token_output": token_output, 
-            "micro_token_output": micro_token_output, 
+            "micro_token_output": token_output, 
             "speedup": all_token_ids.shape[0] / len(output_token_ids)
         }
+    
+    def _color_output(self, token_list, prob_list, steps):
+        colors = [None, 231, 159, 51, 48]
+        colored_token_list = []
+        for token, prob in zip(token_list, prob_list):
+            color_idx = min(int(prob / 0.2), 4)
+            color = colors[color_idx]
+            if color is None:
+                colored_token_list.append(token)
+            else:
+                colored_token_list.append(f"\033[38;5;{color}m{token}\033[0m")
+        
+        concat_colored_token_list = []
+        idx = 0
+        for step in steps:
+            concat_colored_token_list.append("".join(colored_token_list[idx:idx + step]))
+            idx += step
+
+        return concat_colored_token_list
     
     def _get_prob(self, logits: torch.Tensor, token_id: Optional[torch.Tensor] = None):
         logits = logits.view(-1)
