@@ -482,9 +482,9 @@ class M2DLlama(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW([
                 # smaller learning rate for the main model
-                {"params": self.model.model.embed_tokens.parameters(), "lr": 1e-5}, 
+                {"params": self.model.model.embed_tokens.parameters(), "lr": 5e-5}, 
                 # slightly larger lr for the embedding and lm head (tied)
-                {"params": [p for n, p in self.model.named_parameters() if "embed_tokens" not in n], "lr": 3e-5}, 
+                {"params": [p for n, p in self.model.named_parameters() if "embed_tokens" not in n], "lr": 5e-5}, 
                 # larger lr for grafted modules
                 {"params": self.comp_embedder.gate.parameters(), "lr": 1e-3}, 
                 {"params": self.comp_embedder.pos_weight, "lr": 1e-3}, 
