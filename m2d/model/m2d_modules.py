@@ -121,14 +121,12 @@ class ConditionalMicroStepDecoder(nn.Module):
     def __init__(
         self, 
         config: LlamaConfig, 
-        micro_stop_token_id: int, 
         max_steps: int
     ):
         """
             Currently we're just using a single transformer decoder layer
         """
         super().__init__()
-        self.micro_stop_token_id = micro_stop_token_id
         self.max_steps = max_steps
         assert self.max_steps >= 1
         self.num_layers = 4

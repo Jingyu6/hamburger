@@ -77,7 +77,6 @@ class M2DLlama(L.LightningModule):
         # create conditional micro step decoder
         self.micro_step_decoder = ConditionalMicroStepDecoder(
             config=self.model.config, 
-            micro_stop_token_id=self.micro_stop_token_id, 
             max_steps=max_steps
         )
         self.max_steps = max_steps
