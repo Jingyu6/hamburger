@@ -41,17 +41,19 @@ class AttentionMerger(nn.Module):
         # QKV
         hidden_shape = (-1, self.num_heads, self.head_size)
         q = self.q_proj.forward(embeddings.mean(dim=0, keepdim=True)).view(hidden_shape)
+        # add positional information
         embeddings = torch.concat([embeddings, self.pos[:emb_len]], dim=-1)
         k = self.k_proj.forward(embeddings).view(hidden_shape)
         v = self.v_proj.forward(embeddings).view(hidden_shape)
         # cross attention with mean
-        q = q.permute(1, 0, 2)
-        k = k.permute(1, 2, 0)
-        v = v.permute(1, 0, 2)
-        scores = torch.bmm(q, k) / self.scale
-        attention = F.softmax(scores, dim=-1)
-        output = torch.bmm(attention, v)
+        q = q.permute(1, 0, 2) # [H, 1, D]
+        k = k.permute(1, 2, 0) # [H, D, S]
+        v = v.permute(1, 0, 2) # [H, S, D]
+        scores = torch.bmm(q, k) / self.scale # [H, 1, S]
+        attention = F.softmax(scores, dim=-1) # [H, 1, S]
+        output = torch.bmm(attention, v) # [H, 1, D]
 
+        # [H, 1, D] -> [1, H, D] -> [1, H * D]
         return output.permute(1, 0, 2).view(-1, self.emb_size).contiguous()
 
 
@@ -72,11 +74,12 @@ class CompositionalEmbedder(nn.Module):
 
         self.merger = AttentionMerger(
             emb_size=self.emb_size, 
-            num_heads=4, 
+            num_heads=64, # same as llama 
             max_steps=self.max_steps, 
             emb_dtype=self.emb_dtype
         )
 
+        # TODO: will probably refactor this into merger later
         self.out_proj = nn.Linear(
             self.emb_size, 
             self.emb_size, 
