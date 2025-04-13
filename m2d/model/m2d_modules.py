@@ -9,6 +9,52 @@ from transformers.models.llama.modeling_llama import (LlamaDecoderLayer,
                                                       LlamaRotaryEmbedding)
 
 
+class AttentionMerger(nn.Module):
+    def __init__(
+        self, 
+        emb_size: int, 
+        num_heads: int, 
+        max_steps: int, 
+        emb_dtype: torch.dtype
+    ):
+        super().__init__()
+        self.emb_size = emb_size
+        self.num_heads = num_heads
+        self.head_size = self.emb_size // self.num_heads
+        self.max_steps = max_steps
+        self.emb_dtype = emb_dtype
+        
+        emb_plus_pe_size = self.emb_size + self.emb_size // 2
+        self.q_proj = nn.Linear(self.emb_size, self.emb_size, bias=False, dtype=self.emb_dtype)
+        self.k_proj = nn.Linear(emb_plus_pe_size, self.emb_size, bias=False, dtype=self.emb_dtype)
+        self.v_proj = nn.Linear(emb_plus_pe_size, self.emb_size, bias=False, dtype=self.emb_dtype)
+        self.scale = self.head_size ** 0.5
+        self.pos = nn.Parameter(
+            torch.zeros(self.max_steps, self.emb_size // 2, dtype=self.emb_dtype), 
+            requires_grad=True
+        )
+        nn.init.xavier_normal_(self.pos)
+
+    def forward(self, embeddings: torch.Tensor):
+        # embeddings [S, D]
+        emb_len = embeddings.shape[0]
+        # QKV
+        hidden_shape = (-1, self.num_heads, self.head_size)
+        q = self.q_proj.forward(embeddings.mean(dim=0, keepdim=True)).view(hidden_shape)
+        embeddings = torch.concat([embeddings, self.pos[:emb_len]], dim=-1)
+        k = self.k_proj.forward(embeddings).view(hidden_shape)
+        v = self.v_proj.forward(embeddings).view(hidden_shape)
+        # cross attention with mean
+        q = q.permute(1, 0, 2)
+        k = k.permute(1, 2, 0)
+        v = v.permute(1, 0, 2)
+        scores = torch.bmm(q, k) / self.scale
+        attention = F.softmax(scores, dim=-1)
+        output = torch.bmm(attention, v)
+
+        return output.permute(1, 0, 2).view(-1, self.emb_size).contiguous()
+
+
 class CompositionalEmbedder(nn.Module):
     """
         A simple average composition for now
@@ -24,39 +70,29 @@ class CompositionalEmbedder(nn.Module):
         self.emb_size = embedding.weight.shape[-1]
         self.emb_dtype = self.embedding.weight.dtype
 
-        self.gate = nn.Sequential(
-            nn.Linear(
-                in_features=self.emb_size + self.emb_size // 2, 
-                out_features=self.emb_size, 
-                dtype=self.emb_dtype
-            ), 
-            nn.SiLU(), 
-            nn.Linear(
-                in_features=self.emb_size, 
-                out_features=self.emb_size, 
-                dtype=self.emb_dtype
-            )
+        self.merger = AttentionMerger(
+            emb_size=self.emb_size, 
+            num_heads=4, 
+            max_steps=self.max_steps, 
+            emb_dtype=self.emb_dtype
         )
 
-        self.pos_weight = nn.Parameter(
-            torch.zeros(self.max_steps, self.emb_size // 2, dtype=self.emb_dtype), 
-            requires_grad=True
+        self.out_proj = nn.Linear(
+            self.emb_size, 
+            self.emb_size, 
+            bias=False, 
+            dtype=self.emb_dtype
         )
-
-        nn.init.xavier_normal_(self.pos_weight)
 
     def _merge_fn(self, embeddings: torch.Tensor):
         emb_len = embeddings.shape[0]
         if emb_len == 1:
             # we dont do merging
             return embeddings
-        # apply gating
-        gates = F.softmax(self.gate.forward(
-            torch.concat([embeddings, self.pos_weight[:emb_len]], dim=-1)
-        ), dim=0)
+        merge_emb = self.merger.forward(embeddings)
+        merge_emb = self.out_proj.forward(merge_emb)
 
-        return embeddings.mean(dim=0, keepdim=True) + \
-            (embeddings * gates).sum(dim=0, keepdim=True).to(self.emb_dtype)
+        return embeddings.mean(dim=0, keepdim=True) + merge_emb
 
     def single_forward(
         self,
