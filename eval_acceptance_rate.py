@@ -1,208 +1,343 @@
 import argparse
+import random
 
 import torch
-import tqdm
+import torch.nn as nn
+import torch.nn.functional as F
 from datasets import load_dataset
-from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                          RepetitionPenaltyLogitsProcessor, TopPLogitsWarper)
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def acceptance_rate(
-    target_logits, 
-    draft_logits, 
-    temp=1.0, 
-    top_p=1.0, 
-    rep_penalty=1.0, 
-    input_ids=None
+# Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
+def _max_fn(x):
+    """
+        norm(max (x, 0))
+    """
+    x_max = torch.where(x > 0, x, torch.zeros_like(x))
+    x_max_sum = torch.sum(x_max, dim=1, keepdim=True) 
+    return x_max / x_max_sum
+
+
+# copy from https://github.com/LeeSinLiang/microGPT/blob/ed40cf9780dbeb180adfe94c227d4aa97e69250e/gpt.py
+def _top_k_top_p_filter(logits: torch.Tensor, top_k: int = 0, top_p: float = 0.0):
+    """
+    Args:
+        logits (torch.Tensorpe_): 2D tensor with shape (batch, vocab)
+        top_k (int, optional): top_k. Defaults to 0.
+        top_p (float, optional): top_p. Defaults to 0.0.
+
+    Returns:
+        torch.Tensor: a renormalized logits
+    """
+    if top_k > 0:
+        filter = torch.topk(logits, min(top_k, logits.size(-1)))[0]
+        logits[logits < filter[:, [-1]]] = float('-inf')
+    if top_p > 0.0:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(
+            F.softmax(sorted_logits, dim=-1), dim=-1)
+        filter = cumulative_probs > top_p
+        filter[..., 1:] = filter[..., :-1].clone()
+        filter[..., 0] = 0
+        indices_to_remove = filter.scatter(1, sorted_indices, filter)
+        logits[indices_to_remove] = float('-inf')
+    return logits
+
+
+# Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
+def _norm_logits(logits : torch.Tensor, temperature : float, top_k : float, top_p : float) -> torch.Tensor:
+    """
+    Args:
+        logits (torch.Tensor): shape (1, vocab)
+        temperature (float): temperature
+        top_k (float): top_k
+        top_p (float): top_p
+
+    Returns:
+        torch.Tensor: next token with shape as (batch,  1)
+    """
+    assert logits.dim() == 2
+    logits = logits / temperature
+    logits = _top_k_top_p_filter(logits, top_k=top_k, top_p=top_p)
+    probs = F.softmax(logits, dim=1)
+    return probs
+
+
+# Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
+def _sample(probs : torch.Tensor, num_samples: int = 1):
+    idx_next = torch.multinomial(probs, num_samples=num_samples)
+    if (idx_next.item() == 0):
+        raise RuntimeError
+    return idx_next
+
+
+# Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
+class KVCacheModel():
+    def __init__(
+        self, 
+        model : nn.Module, 
+        temperature : float = 1, 
+        top_k : int = 0, 
+        top_p : float = 0
+    ) -> None:
+        self._model = model
+        self._past_key_values = None
+        self._prob_history = None
+
+        self._temperature = temperature
+        self._top_k = top_k
+        self._top_p = top_p
+
+    def _forward_with_kvcache(self, input_ids: torch.Tensor) -> torch.Tensor:
+        if self._past_key_values is None:
+            assert self._prob_history is None, f"{self._prob_history.shape}"
+            # the first forward (prefill) returns the prompt's logits
+            outputs = self._model(input_ids)
+            self._prob_history = outputs.logits
+            for i in range(self._prob_history.shape[-2]):   
+                self._prob_history[:, i, :] = _norm_logits(self._prob_history[:, i, :], self._temperature, self._top_k, self._top_p)
+            self._past_key_values = outputs.past_key_values
+            last_q = self._prob_history[:, -1, :]
+        else:
+            # return the last token's logits
+            cached_len = 0
+            for kv in self._past_key_values:
+                k, v = kv
+                cached_len = k.shape[2]
+                
+            last_input_id = input_ids[:, cached_len:]
+            if last_input_id.dim() == 1:
+                last_input_id = torch.unsqueeze(last_input_id, 0)
+            
+            outputs = self._model(last_input_id, past_key_values=self._past_key_values, use_cache=True)
+            
+            not_cached_q = outputs.logits
+            if not_cached_q.dim() == 2:
+                not_cached_q = torch.unsqueeze(not_cached_q, 0)
+                
+            for i in range(not_cached_q.shape[-2]):   
+                not_cached_q[:, i, :] = _norm_logits(not_cached_q[:, i, :], self._temperature, self._top_k, self._top_p)    
+                
+            self._prob_history = torch.cat([self._prob_history, not_cached_q], dim=1)
+            
+            last_q = not_cached_q[:, -1, :]
+            self._past_key_values = outputs.past_key_values
+        
+        return last_q
+
+
+    def _generate_with_kvcache(
+        self, prefix : torch.Tensor, 
+        gamma : int, 
+    ) -> torch.Tensor:
+        """ forward the model gamma times
+
+        Args:
+            prefix (torch.Tensor): the prefix
+            gamma (int): how many times approx guesses
+
+        Returns:
+            Torch.Tensor: prefix+generated tokens
+        """
+        x = prefix
+
+        for _ in range(gamma):
+            q = self._forward_with_kvcache(x)
+            next_tok = _sample(q)
+            x = torch.cat((x, next_tok), dim=1)
+        return x
+
+    @torch.no_grad()
+    def generate(self, input: torch.Tensor, gamma: int) -> torch.Tensor:
+        output = self._generate_with_kvcache(input, gamma)
+        return output
+    
+    @torch.no_grad()
+    def rollback(self, end_pos: int):
+        past_key_values_trimmed = []
+        assert self._past_key_values
+        for kv in self._past_key_values:
+            k, v = kv
+
+            # k, v (batch, head, seq, hidden_dim)
+            k = k[:, :, :end_pos, :]
+            v = v[:, :, :end_pos, :]
+            kv_trimmed = (k, v)
+            past_key_values_trimmed.append(kv_trimmed)
+        
+        self._past_key_values = past_key_values_trimmed
+        self._prob_history = self._prob_history[:, :end_pos, :]
+
+
+# Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
+@torch.no_grad()
+def speculative_sampling(
+    prefix: torch.Tensor, 
+    draft_model: torch.nn.Module, 
+    base_model: torch.nn.Module, 
+    max_gen_len: int, 
+    gamma: int = 4,
+    temperature: float = 1, 
+    top_k: int = 0, 
+    top_p: float = 0
+) -> torch.Tensor:
+    """
+    Google version Speculative Sampling.
+    https://arxiv.org/pdf/2211.17192.pdf
+        
+    Adapted with KV Cache Optimization.
+        
+    Args:
+        x (torch.Tensor): input sequence, (batch, prefix_seqlen), Note that the batch dim is always 1 now.
+        draft_model (torch.nn.Module): approx model, the small one
+        base_model (torch.nn.Module): target model, the large one
+        max_len (int): the max overall generated tokens number.
+        gamma (int): $\gamma$, the token number small model guesses.
+        temperature (float, optional): Defaults to 1.
+        top_k (int, optional): Defaults to 0.
+        top_p (float, optional): Defaults to 0.
+
+    Returns:
+        torch.Tensor: generated tokens (batch, target_seqlen)
+    """
+    seq_len = prefix.shape[1]
+    T = seq_len + max_gen_len
+    
+    assert prefix.shape[0] == 1, "input batch size must be 1"
+
+    assert draft_model.device == base_model.device
+    
+    device = base_model.device
+    
+    approx_model_cache = KVCacheModel(draft_model, temperature, top_k, top_p)
+    target_model_cache = KVCacheModel(base_model, temperature, top_k, top_p)
+    
+    resample_count = 0
+    target_sample_count = 0
+    accepted_count = 0
+    
+    while prefix.shape[1] < T:
+        # q = M_q[prefix + x_0, x_1, .., x_(gamma-2)]
+        prefix_len = prefix.shape[1]
+
+        x = approx_model_cache.generate(prefix, gamma)
+        _ = target_model_cache.generate(x, 1)
+        
+        n = prefix_len + gamma - 1
+        
+        for i in range(gamma):
+            r = torch.rand(1, device = device)
+            j = x[:, prefix_len + i]
+            
+            if r > (target_model_cache._prob_history[:, prefix_len + i - 1, j]) / (approx_model_cache._prob_history[:, prefix_len + i - 1, j]):
+                # reject
+                n = prefix_len + i - 1
+                break
+            
+            accepted_count += 1
+        
+        # print(f"n : {n}, i : {i}, prefix_len + gamma - 1: {prefix_len + gamma - 1}")
+        assert n >= prefix_len - 1, f"n {n}, prefix_len {prefix_len}"
+        prefix = x[:, :n + 1]
+        
+        approx_model_cache.rollback(n+1)
+        
+        assert approx_model_cache._prob_history.shape[-2] <= n + 1, f"approx_model prob list shape {approx_model_cache._prob_history.shape}, n {n}"
+        
+        if n < prefix_len + gamma - 1:
+            # reject someone, sample from the pos n
+            t = _sample(_max_fn(target_model_cache._prob_history[:, n, :] - approx_model_cache._prob_history[:, n, :]))
+            resample_count += 1
+            target_model_cache.rollback(n+1)
+        else:
+            # all approx model decoding accepted
+            assert n == target_model_cache._prob_history.shape[1] - 1
+            t = _sample(target_model_cache._prob_history[:, -1, :])
+            target_sample_count += 1
+            target_model_cache.rollback(n+2)
+        
+        
+        prefix = torch.cat((prefix, t), dim=1)
+
+    print(f"generated tokens numbers {prefix.shape[-1] - seq_len}, accepted_count {accepted_count}, target_sample_count {target_sample_count}, resample_count {resample_count}")
+    return prefix
+
+
+def prepare_data(
+    dataset_name: str, 
+    subset: str, 
+    split: str, 
+    prompt_key: str, 
+    max_samples: int, 
+    tokenizer: AutoTokenizer
 ):
-    # `target_logits` and `draft_logits` should have shape `(batch_size, seq_len, vocab_size)`.
-    assert len(target_logits.shape) == 3
-    assert len(draft_logits.shape) == 3
-    draft_logits = draft_logits.to(target_logits.device)
+    dataset = load_dataset(dataset_name, name=subset, split=split).take(max_samples)
+    prompt_ids = []
+    for prompt in dataset[prompt_key]:
+        print(prompt)
+        exit()
 
-    if rep_penalty != 1.0:
-        processor = RepetitionPenaltyLogitsProcessor(rep_penalty)
-        for i in range(1, target_logits.size(1)):
-            processor(input_ids[:, :i], target_logits[:, i])
-            processor(input_ids[:, :i], draft_logits[:, i])
-
-    if top_p != 1.0:
-        target_logits = TopPLogitsWarper(top_p)(input_ids, target_logits)
-        draft_logits = TopPLogitsWarper(top_p)(input_ids, draft_logits)
-
-    if temp != 0.0:
-        target_logits = target_logits / temp
-        draft_logits = draft_logits / temp
-
-        # Compute softmax distributions
-        target_p = torch.softmax(target_logits, dim=-1)
-        draft_p = torch.softmax(draft_logits, dim=-1)
-
-        # L1 distance between distributions => sum of absolute differences
-        # normalized so that if distributions are identical, acceptance = 1,
-        # if they're completely disjoint, acceptance rate = 0
-        # shape: (batch_size, seq_len)
-        acc = 1.0 - (target_p - draft_p).abs().sum(dim=-1) / 2.0
-
-    else:
-        target_p = torch.argmax(target_logits, dim=-1, keepdim=False)
-        draft_p = torch.argmax(draft_logits, dim=-1, keepdim=False)
-        acc = 1.0 - (target_p != draft_p).float()
-
-    assert len(acc.shape) == 2
-    return acc
-
-def get_prompt_response(item, tokenizer):
-    input1 = item["turn_1_input"]
-    output1 = item[args.output_key]
-
-    #assign user and assistant roles
-    chat = [{"role": "user", "content": input1}, {"role": "assistant", "content": output1}]
-
-    roles = [turn['role'] for turn in chat]
-    if roles[:2] == ['user', 'assistant']:
-        prompt_in_llama3_format = tokenizer.apply_chat_template(chat[:1], tokenize=False, add_generation_prompt=True)
-        prompt_response_in_llama3_format = tokenizer.apply_chat_template(chat[:2], tokenize=False)
-    elif roles[:3] == ['system', 'user', 'assistant']:
-        prompt_in_llama3_format = tokenizer.apply_chat_template(chat[:2], tokenize=False, add_generation_prompt=True)
-        prompt_response_in_llama3_format = tokenizer.apply_chat_template(chat[:3], tokenize=False)
-    else:
-        raise ValueError('Unexpected sequence of roles')
-
-    return {
-        'prompt': prompt_in_llama3_format,
-        'text': prompt_response_in_llama3_format,
-        'category': item['category']
-    }
-
-def tokenize_text_prompt(example, tokenizer, seq_length=2048):
-    text = example["text"]
-    prompt = example["prompt"]
-    all_tokens = tokenizer(text, return_tensors='pt')
-    prompt_tokens = tokenizer(prompt, return_tensors='pt')
-    labels = all_tokens['input_ids'].clone()
-    labels[:, :prompt_tokens['input_ids'].shape[1]] = -100
-    attn_mask = all_tokens['attention_mask']
-    
-    return {
-        'input_ids': all_tokens['input_ids'][:, :seq_length],
-        'labels': labels[:, :seq_length],
-        'attention_mask': attn_mask[:, :seq_length],
-    }
-
-def prepare_batch(example, model, tokenizer):
-    item = tokenize_text_prompt(example, tokenizer)
-    
-    input_ids = item["input_ids"]
-    labels = item["labels"]
-
-    attention_mask = item["attention_mask"]
-
-    return {
-        "input_ids": input_ids.to(model.device),
-        "attention_mask": attention_mask.to(model.device),
-        "labels": labels.to(model.device)
-    }
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run speculative decoding benchmark')
-    parser.add_argument('--hf_data', type=str, default="togethercomputer/specbench-Llama3.1-405B",
+    
+    parser.add_argument('--dataset_name', type=str, 
+        default="openai/gsm8k",
         help='HuggingFace dataset to use for benchmarking')
-    parser.add_argument('--target_model', type=str, default='meta-llama/Llama-3.1-8B-Instruct',
-        help='HuggingFace model ID or path for target model')
+    parser.add_argument('--subset', type=str, default="main",
+        help='Subset name in HF dataset')
+    parser.add_argument('--split', type=str, default="train",
+        help='Split name in HF dataset')
+    parser.add_argument('--prompt_key', type=str, default="prompt",
+        help='The key in the dataset for prompts')
+    parser.add_argument('--max_samples', type=int, default=256,
+        help='Max number of samples to evaluate')
+    
+    parser.add_argument('--base_model', type=str, 
+        default='meta-llama/Llama-3.2-3B-Instruct',
+        help='HuggingFace model ID or path for base model')
     parser.add_argument('--draft_model', type=str, 
         default='meta-llama/Llama-3.2-1B',
         help='HuggingFace model ID or path for draft model')
-    parser.add_argument('--draft_model_type', type=str, choices=["hf", "m2d"], 
-        default="hf", 
-        help="What is the model type being used")
-    parser.add_argument('--temperature', type=float, default=1.0,
-        help='Temperature for target model')
-    parser.add_argument('--output_key', type=str, default='turn_1_output_temp1',
-        help='Key for output in dataset')
+    
+    parser.add_argument('--max_gen_len', type=int, default=128,
+        help='Max number of tokens to generate')
+    parser.add_argument('--gamma', type=int, default=4,
+        help='Max number of drafting tokens')
+    
+    parser.add_argument('--seed', type=int, default=227,
+        help='Random seed for experiments')
+    
     return parser.parse_args()
 
-if __name__ == "__main__":
-    print(torch.cuda.device_count())
-    print(torch.cuda.get_device_name(0)) 
 
+def main():
     args = parse_args()
 
-    model_id = args.target_model
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
-    model.eval()
+    random.seed(args.seed)    
+    torch.manual_seed(args.seed)
 
-    draft_model_id = args.draft_model
-    draft_model = AutoModelForCausalLM.from_pretrained(draft_model_id, device_map="auto")
-    draft_model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=True)
 
-    dataset = load_dataset(args.hf_data, split="train")
-    all_accept_rates = {}
+    data = prepare_data(
+        dataset_name=args.dataset_name, 
+        subset=args.subset, 
+        split=args.split, 
+        prompt_key=args.prompt_key, 
+        max_samples=args.max_samples, 
+        tokenizer=tokenizer
+    )
 
-    pbar = tqdm.tqdm(dataset)
-    for example in pbar:
-        item = get_prompt_response(example, tokenizer)
-        inputs = prepare_batch(item, model, tokenizer)
-        draft_inputs = prepare_batch(item, draft_model, tokenizer)
-        labels = inputs["labels"]
 
-        with torch.no_grad():
-            target_valid_logits_len = (labels != -100).sum(dim=-1)
-            if target_valid_logits_len[0] == 0:
-                print("skipping this item")
-                print(target_valid_logits_len[0])
-                continue
+if __name__ == "__main__":
+    """
+    Example usage:
 
-            target_output = model.forward(**inputs)
-            target_logits = target_output.logits
-            target_logits = target_logits[labels != -100]
-            # only keep non-ignored tokens
-            draft_output = draft_model.forward(**draft_inputs)
-            draft_logits = draft_output.logits
-            # only keep non-ignored tokens
-            draft_valid_logits_len = (labels != -100).sum(dim=-1)
-            draft_logits = draft_logits[labels.to(draft_model.device) != -100]
-
-            # we want to make sure the valid logits are the same
-            if not torch.all(target_valid_logits_len == draft_valid_logits_len).item():
-                raise ValueError("The valid logits lengths are different.")
-            
-            target_logits = target_logits.unsqueeze(0)
-            draft_logits = draft_logits.unsqueeze(0)
-
-            accept_rates = acceptance_rate(target_logits, draft_logits, temp=args.temperature, top_p=1.0)
-
-            # restore 1D shape
-            accept_rates = accept_rates.squeeze(0)
-
-            # Use torch.split to divide accept_rates into segments for batch_size
-            accept_rates_segments = torch.split(accept_rates, draft_valid_logits_len.tolist())
-
-            # Calculate mean for each segment
-            accept_rates = torch.cat([segment.mean().unsqueeze(0) for segment in accept_rates_segments])
-            
-            if item["category"] not in all_accept_rates:
-                all_accept_rates[item["category"]] = []
-            all_accept_rates[item["category"]].extend(accept_rates.tolist())
-
-            all_accept_rates_in_category = []
-        
-            postfix_dict = {}
-            for category, accept_rates in all_accept_rates.items():
-                running_mean = torch.mean(torch.tensor(accept_rates))    
-                postfix_dict[f"running_mean_{category}"] = running_mean.item()
-                all_accept_rates_in_category += [running_mean.item()]
-            
-            all_running_mean = torch.mean(torch.tensor(all_accept_rates_in_category))
-            postfix_dict["running_mean_all"] = all_running_mean.item()
-            
-            pbar.set_postfix(**postfix_dict)
-
-    # Print all acceptance rates with draft model ID
-    print(f"Acceptance rates for draft model: {draft_model_id}")
-    for category, rates in all_accept_rates.items():
-        mean_rate = sum(rates) / len(rates)
-        print(f"{category}: {mean_rate:.3f}")
-    print(f"Overall mean acceptance rate: {all_running_mean:.3f}")
-    print("\n")
+    python eval_acceptance_rate.py \
+        --dataset_name openai/gsm8k \
+        --subset main \
+        --split test \
+        --prompt_key question \
+        --max_samples 8
+    """
+    main()
