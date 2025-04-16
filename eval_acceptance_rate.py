@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
@@ -75,10 +76,10 @@ def _sample(probs : torch.Tensor, num_samples: int = 1):
 class KVCacheModel():
     def __init__(
         self, 
-        model : nn.Module, 
-        temperature : float = 1, 
-        top_k : int = 0, 
-        top_p : float = 0
+        model: nn.Module, 
+        temperature: float = 1, 
+        top_k: int = 0, 
+        top_p: float = 0
     ) -> None:
         self._model = model
         self._past_key_values = None
@@ -92,7 +93,7 @@ class KVCacheModel():
         if self._past_key_values is None:
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # the first forward (prefill) returns the prompt's logits
-            outputs = self._model(input_ids)
+            outputs = self._model.forward(input_ids, use_cache=True)
             self._prob_history = outputs.logits
             for i in range(self._prob_history.shape[-2]):   
                 self._prob_history[:, i, :] = _norm_logits(self._prob_history[:, i, :], self._temperature, self._top_k, self._top_p)
@@ -109,7 +110,11 @@ class KVCacheModel():
             if last_input_id.dim() == 1:
                 last_input_id = torch.unsqueeze(last_input_id, 0)
             
-            outputs = self._model(last_input_id, past_key_values=self._past_key_values, use_cache=True)
+            outputs = self._model.forward(
+                last_input_id, 
+                past_key_values=self._past_key_values, 
+                use_cache=True
+            )
             
             not_cached_q = outputs.logits
             if not_cached_q.dim() == 2:
@@ -154,18 +159,13 @@ class KVCacheModel():
     
     @torch.no_grad()
     def rollback(self, end_pos: int):
-        past_key_values_trimmed = []
-        assert self._past_key_values
-        for kv in self._past_key_values:
-            k, v = kv
-
-            # k, v (batch, head, seq, hidden_dim)
-            k = k[:, :, :end_pos, :]
-            v = v[:, :, :end_pos, :]
-            kv_trimmed = (k, v)
-            past_key_values_trimmed.append(kv_trimmed)
-        
-        self._past_key_values = past_key_values_trimmed
+        # change to align with new HF API
+        self._past_key_values._seen_tokens = end_pos
+        for layer_idx in range(len(self._past_key_values.value_cache)):
+            self._past_key_values.key_cache[layer_idx] = \
+                self._past_key_values.key_cache[layer_idx][:, :, :end_pos, :]
+            self._past_key_values.value_cache[layer_idx] = \
+                self._past_key_values.value_cache[layer_idx][:, :, :end_pos, :]
         self._prob_history = self._prob_history[:, :end_pos, :]
 
 
@@ -180,7 +180,7 @@ def speculative_sampling(
     temperature: float = 1, 
     top_k: int = 0, 
     top_p: float = 0
-) -> torch.Tensor:
+):
     """
     Google version Speculative Sampling.
     https://arxiv.org/pdf/2211.17192.pdf
@@ -213,7 +213,7 @@ def speculative_sampling(
     target_model_cache = KVCacheModel(base_model, temperature, top_k, top_p)
     
     resample_count = 0
-    target_sample_count = 0
+    base_sample_count = 0
     accepted_count = 0
     
     while prefix.shape[1] < T:
@@ -240,7 +240,7 @@ def speculative_sampling(
         assert n >= prefix_len - 1, f"n {n}, prefix_len {prefix_len}"
         prefix = x[:, :n + 1]
         
-        approx_model_cache.rollback(n+1)
+        approx_model_cache.rollback(n + 1)
         
         assert approx_model_cache._prob_history.shape[-2] <= n + 1, f"approx_model prob list shape {approx_model_cache._prob_history.shape}, n {n}"
         
@@ -248,19 +248,23 @@ def speculative_sampling(
             # reject someone, sample from the pos n
             t = _sample(_max_fn(target_model_cache._prob_history[:, n, :] - approx_model_cache._prob_history[:, n, :]))
             resample_count += 1
-            target_model_cache.rollback(n+1)
+            target_model_cache.rollback(n + 1)
         else:
             # all approx model decoding accepted
             assert n == target_model_cache._prob_history.shape[1] - 1
             t = _sample(target_model_cache._prob_history[:, -1, :])
-            target_sample_count += 1
-            target_model_cache.rollback(n+2)
-        
+            base_sample_count += 1
+            target_model_cache.rollback(n + 2)
         
         prefix = torch.cat((prefix, t), dim=1)
 
-    print(f"generated tokens numbers {prefix.shape[-1] - seq_len}, accepted_count {accepted_count}, target_sample_count {target_sample_count}, resample_count {resample_count}")
-    return prefix
+    return {
+        "token_ids": prefix, 
+        "gen_len": prefix.shape[-1] - seq_len, 
+        "accepted_count": accepted_count, 
+        "base_sample_count": base_sample_count, 
+        "resample_count": resample_count
+    }
 
 
 def prepare_data(
@@ -272,10 +276,20 @@ def prepare_data(
     tokenizer: AutoTokenizer
 ):
     dataset = load_dataset(dataset_name, name=subset, split=split).take(max_samples)
+    
     prompt_ids = []
-    for prompt in dataset[prompt_key]:
-        print(prompt)
-        exit()
+    for prompt in tqdm(dataset[prompt_key], desc="Tokenize data"):
+        conversation = [{"role": "user", "content": prompt}]
+        input_ids = tokenizer.apply_chat_template(
+            conversation, 
+            # this is used to make the model not output the gen prompt
+            add_generation_prompt=True, 
+            return_tensors='pt', 
+            return_dict=True
+        )["input_ids"]
+        prompt_ids.append(input_ids)
+    
+    return prompt_ids
 
 
 def parse_args():
@@ -299,12 +313,16 @@ def parse_args():
     parser.add_argument('--draft_model', type=str, 
         default='meta-llama/Llama-3.2-1B',
         help='HuggingFace model ID or path for draft model')
+    parser.add_argument("--device", type=str, default="cuda:0", 
+        help='Device name')
     
-    parser.add_argument('--max_gen_len', type=int, default=128,
+    parser.add_argument('--max_gen_len', type=int, default=256,
         help='Max number of tokens to generate')
     parser.add_argument('--gamma', type=int, default=4,
         help='Max number of drafting tokens')
     
+    parser.add_argument('--print_output', action="store_true", default=False, 
+        help="Whether to print the generated output")
     parser.add_argument('--seed', type=int, default=227,
         help='Random seed for experiments')
     
@@ -327,6 +345,44 @@ def main():
         max_samples=args.max_samples, 
         tokenizer=tokenizer
     )
+
+    draft_model = AutoModelForCausalLM.from_pretrained(
+        args.draft_model, 
+        trust_remote_code=True, 
+        torch_dtype=torch.bfloat16, 
+        attn_implementation="flash_attention_2",
+        device_map=args.device
+    )
+
+    base_model = AutoModelForCausalLM.from_pretrained(
+        args.base_model, 
+        trust_remote_code=True, 
+        torch_dtype=torch.bfloat16, 
+        attn_implementation="flash_attention_2",
+        device_map=args.device
+    )
+
+    acceptance_rates = []
+
+    for prompt_ids in tqdm(data, desc="Evaluate speculative decoding"):
+        prompt_len = prompt_ids.shape[-1]
+        outputs = speculative_sampling(
+            prefix=prompt_ids.to(base_model.device), 
+            draft_model=draft_model, 
+            base_model=base_model, 
+            max_gen_len=args.max_gen_len, 
+            gamma=args.gamma
+        )
+        if args.print_output:
+            print(tokenizer.decode(
+                outputs["token_ids"].cpu().view(-1).tolist()[prompt_len:]
+            ))
+        acceptance_rates.append(
+            outputs["accepted_count"] / outputs["gen_len"]
+        )
+
+    assert len(acceptance_rates) > 0
+    print(f"Average acceptance rate: {sum(acceptance_rates) / len(acceptance_rates) * 100:.2f}%")
 
 
 if __name__ == "__main__":
