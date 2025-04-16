@@ -1,12 +1,13 @@
 import argparse
 import random
+from typing import Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
@@ -93,7 +94,7 @@ class KVCacheModel():
         if self._past_key_values is None:
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # the first forward (prefill) returns the prompt's logits
-            outputs = self._model.forward(input_ids, use_cache=True)
+            outputs = self._model.speculate(input_ids, use_cache=True)
             self._prob_history = outputs.logits
             for i in range(self._prob_history.shape[-2]):   
                 self._prob_history[:, i, :] = _norm_logits(self._prob_history[:, i, :], self._temperature, self._top_k, self._top_p)
@@ -110,7 +111,7 @@ class KVCacheModel():
             if last_input_id.dim() == 1:
                 last_input_id = torch.unsqueeze(last_input_id, 0)
             
-            outputs = self._model.forward(
+            outputs = self._model.speculate(
                 last_input_id, 
                 past_key_values=self._past_key_values, 
                 use_cache=True
@@ -179,7 +180,8 @@ def speculative_sampling(
     gamma: int = 4,
     temperature: float = 1, 
     top_k: int = 0, 
-    top_p: float = 0
+    top_p: float = 0, 
+    eos_token_id: Optional[int] = None
 ):
     """
     Google version Speculative Sampling.
@@ -236,9 +238,14 @@ def speculative_sampling(
             
             accepted_count += 1
         
-        # print(f"n : {n}, i : {i}, prefix_len + gamma - 1: {prefix_len + gamma - 1}")
         assert n >= prefix_len - 1, f"n {n}, prefix_len {prefix_len}"
         prefix = x[:, :n + 1]
+
+        # check for stop during acceptance
+        if torch.any(prefix[:, prefix_len:n+1] == eos_token_id):
+            # this might give a few tokens off but does not
+            # change the final stats significantly
+            break
         
         approx_model_cache.rollback(n + 1)
         
@@ -257,6 +264,10 @@ def speculative_sampling(
             target_model_cache.rollback(n + 2)
         
         prefix = torch.cat((prefix, t), dim=1)
+
+        # check again for stop during acceptance
+        if torch.any(t == eos_token_id):
+            break
 
     return {
         "token_ids": prefix, 
@@ -311,7 +322,7 @@ def parse_args():
         default='meta-llama/Llama-3.2-3B-Instruct',
         help='HuggingFace model ID or path for base model')
     parser.add_argument('--draft_model', type=str, 
-        default='meta-llama/Llama-3.2-1B',
+        default='meta-llama/Llama-3.2-1B-Instruct',
         help='HuggingFace model ID or path for draft model')
     parser.add_argument("--device", type=str, default="cuda:0", 
         help='Device name')
@@ -362,6 +373,10 @@ def main():
         device_map=args.device
     )
 
+    # register forward (later for API consistency)
+    base_model.speculate = base_model.forward
+    draft_model.speculate = draft_model.forward
+    
     acceptance_rates = []
 
     for prompt_ids in tqdm(data, desc="Evaluate speculative decoding"):
@@ -371,7 +386,8 @@ def main():
             draft_model=draft_model, 
             base_model=base_model, 
             max_gen_len=args.max_gen_len, 
-            gamma=args.gamma
+            gamma=args.gamma, 
+            eos_token_id=tokenizer.eos_token_id
         )
         if args.print_output:
             print(tokenizer.decode(
