@@ -95,7 +95,7 @@ class KVCacheModel():
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # the first forward (prefill) returns the prompt's logits
             outputs = self._model.speculate(input_ids, use_cache=True)
-            self._prob_history = outputs.logits
+            self._prob_history = outputs["logits"]
             for i in range(self._prob_history.shape[-2]):   
                 self._prob_history[:, i, :] = _norm_logits(self._prob_history[:, i, :], self._temperature, self._top_k, self._top_p)
             self._past_key_values = outputs.past_key_values
@@ -117,7 +117,7 @@ class KVCacheModel():
                 use_cache=True
             )
             
-            not_cached_q = outputs.logits
+            not_cached_q = outputs["logits"]
             if not_cached_q.dim() == 2:
                 not_cached_q = torch.unsqueeze(not_cached_q, 0)
                 
@@ -130,7 +130,6 @@ class KVCacheModel():
             self._past_key_values = outputs.past_key_values
         
         return last_q
-
 
     def _generate_with_kvcache(
         self, prefix : torch.Tensor, 
@@ -174,8 +173,8 @@ class KVCacheModel():
 @torch.no_grad()
 def speculative_sampling(
     prefix: torch.Tensor, 
-    draft_model: torch.nn.Module, 
     base_model: torch.nn.Module, 
+    draft_model: torch.nn.Module, 
     max_gen_len: int, 
     gamma: int = 4,
     temperature: float = 1, 
@@ -211,8 +210,8 @@ def speculative_sampling(
     
     device = base_model.device
     
-    approx_model_cache = KVCacheModel(draft_model, temperature, top_k, top_p)
-    target_model_cache = KVCacheModel(base_model, temperature, top_k, top_p)
+    draft_model_cache = KVCacheModel(draft_model, temperature, top_k, top_p)
+    base_model_cache = KVCacheModel(base_model, temperature, top_k, top_p)
     
     resample_count = 0
     base_sample_count = 0
@@ -222,8 +221,8 @@ def speculative_sampling(
         # q = M_q[prefix + x_0, x_1, .., x_(gamma-2)]
         prefix_len = prefix.shape[1]
 
-        x = approx_model_cache.generate(prefix, gamma)
-        _ = target_model_cache.generate(x, 1)
+        x = draft_model_cache.generate(prefix, gamma)
+        _ = base_model_cache.generate(x, 1)
         
         n = prefix_len + gamma - 1
         
@@ -231,7 +230,7 @@ def speculative_sampling(
             r = torch.rand(1, device = device)
             j = x[:, prefix_len + i]
             
-            if r > (target_model_cache._prob_history[:, prefix_len + i - 1, j]) / (approx_model_cache._prob_history[:, prefix_len + i - 1, j]):
+            if r > (base_model_cache._prob_history[:, prefix_len + i - 1, j]) / (draft_model_cache._prob_history[:, prefix_len + i - 1, j]):
                 # reject
                 n = prefix_len + i - 1
                 break
@@ -247,21 +246,21 @@ def speculative_sampling(
             # change the final stats significantly
             break
         
-        approx_model_cache.rollback(n + 1)
+        draft_model_cache.rollback(n + 1)
         
-        assert approx_model_cache._prob_history.shape[-2] <= n + 1, f"approx_model prob list shape {approx_model_cache._prob_history.shape}, n {n}"
+        assert draft_model_cache._prob_history.shape[-2] <= n + 1, f"approx_model prob list shape {draft_model_cache._prob_history.shape}, n {n}"
         
         if n < prefix_len + gamma - 1:
             # reject someone, sample from the pos n
-            t = _sample(_max_fn(target_model_cache._prob_history[:, n, :] - approx_model_cache._prob_history[:, n, :]))
+            t = _sample(_max_fn(base_model_cache._prob_history[:, n, :] - draft_model_cache._prob_history[:, n, :]))
             resample_count += 1
-            target_model_cache.rollback(n + 1)
+            base_model_cache.rollback(n + 1)
         else:
             # all approx model decoding accepted
-            assert n == target_model_cache._prob_history.shape[1] - 1
-            t = _sample(target_model_cache._prob_history[:, -1, :])
+            assert n == base_model_cache._prob_history.shape[1] - 1
+            t = _sample(base_model_cache._prob_history[:, -1, :])
             base_sample_count += 1
-            target_model_cache.rollback(n + 2)
+            base_model_cache.rollback(n + 2)
         
         prefix = torch.cat((prefix, t), dim=1)
 
@@ -324,6 +323,9 @@ def parse_args():
     parser.add_argument('--draft_model', type=str, 
         default='meta-llama/Llama-3.2-1B-Instruct',
         help='HuggingFace model ID or path for draft model')
+    parser.add_argument('--draft_model_type', type=str, 
+        default='hf', choices=["hf", "m2d"], 
+        help='What model type is used as the draft model')
     parser.add_argument("--device", type=str, default="cuda:0", 
         help='Device name')
     
@@ -357,14 +359,6 @@ def main():
         tokenizer=tokenizer
     )
 
-    draft_model = AutoModelForCausalLM.from_pretrained(
-        args.draft_model, 
-        trust_remote_code=True, 
-        torch_dtype=torch.bfloat16, 
-        attn_implementation="flash_attention_2",
-        device_map=args.device
-    )
-
     base_model = AutoModelForCausalLM.from_pretrained(
         args.base_model, 
         trust_remote_code=True, 
@@ -373,10 +367,26 @@ def main():
         device_map=args.device
     )
 
-    # register forward (later for API consistency)
     base_model.speculate = base_model.forward
-    draft_model.speculate = draft_model.forward
-    
+
+    if args.draft_model_type == "hf":
+        draft_model = AutoModelForCausalLM.from_pretrained(
+            args.draft_model, 
+            trust_remote_code=True, 
+            torch_dtype=torch.bfloat16, 
+            attn_implementation="flash_attention_2",
+            device_map=args.device
+        )
+        draft_model.speculate = draft_model.forward
+    elif args.draft_model_type == "m2d":
+        from m2d.model.llama import M2DLlama
+        draft_model = M2DLlama.load_from_checkpoint(
+            args.draft_model, 
+            map_location='cpu'
+        ).to(args.device)
+    else:
+        raise ValueError(f"Unsupported draft model type {args.draft_model_type}.")
+
     acceptance_rates = []
 
     for prompt_ids in tqdm(data, desc="Evaluate speculative decoding"):

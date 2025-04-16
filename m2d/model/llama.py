@@ -90,6 +90,19 @@ class M2DLlama(L.LightningModule):
         self.report = SpeedupReport()
 
     @torch.inference_mode
+    def _inference_forward(self):
+        pass
+
+    @torch.inference_mode
+    def speculate(
+        self, 
+        input_ids,  
+        past_key_values, 
+        use_cache, 
+    ):
+        pass
+
+    @torch.inference_mode
     def generate(
         self, 
         prompt: Optional[str] = None, 
