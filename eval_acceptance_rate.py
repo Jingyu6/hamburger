@@ -9,6 +9,12 @@ from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from m2d.config import GenConfig
+from m2d.model.llama import M2DLlama
+
+GEN_CONFIG = GenConfig(
+    micro_step_confidence=None
+)
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
 def _max_fn(x):
@@ -142,7 +148,7 @@ class KVCacheModel():
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # prefill
             prefix_len = input_ids.shape[-1]
-            outputs = self._model.speculate(input_ids, is_prefill=True)
+            outputs = self._model.speculate(input_ids, is_prefill=True, config=GEN_CONFIG)
             # add dummy logits since we don't go through the lm head
             self._prob_history = torch.concat([
                 torch.zeros(
@@ -168,7 +174,8 @@ class KVCacheModel():
                 last_input_ids, 
                 is_prefill=False, 
                 prefix_len=self._prefix_len, 
-                past_key_values=self._past_key_values
+                past_key_values=self._past_key_values, 
+                config=GEN_CONFIG
             )
             
             not_cached_q = outputs["logits"]
@@ -298,6 +305,8 @@ def speculative_sampling(
     resample_count = 0
     base_sample_count = 0
     accepted_count = 0
+    draft_count = 0
+    decode_steps = 0
     
     while prefix.shape[1] < T:
         prefix_len = prefix.shape[1]
@@ -306,7 +315,9 @@ def speculative_sampling(
         _ = base_model_cache.generate(x, 1)
 
         draft_cnt = x.shape[1] - prefix_len
+        draft_count += draft_cnt
         n = prefix_len + draft_cnt - 1
+        decode_steps += 1
 
         for i in range(draft_cnt):
             r = torch.rand(1, device=device)
@@ -353,6 +364,8 @@ def speculative_sampling(
     return {
         "token_ids": prefix, 
         "gen_len": prefix.shape[-1] - seq_len, 
+        "decode_steps": decode_steps, 
+        "draft_count": draft_count, 
         "accepted_count": accepted_count, 
         "base_sample_count": base_sample_count, 
         "resample_count": resample_count
@@ -390,7 +403,7 @@ def parse_args():
     parser.add_argument('--dataset_name', type=str, 
         default="openai/gsm8k",
         help='HuggingFace dataset to use for benchmarking')
-    parser.add_argument('--subset', type=str, default="main",
+    parser.add_argument('--subset', type=str, default=None,
         help='Subset name in HF dataset')
     parser.add_argument('--split', type=str, default="train",
         help='Split name in HF dataset')
@@ -461,7 +474,6 @@ def main():
         )
         draft_model.speculate = draft_model.forward
     elif args.draft_model_type == "m2d":
-        from m2d.model.llama import M2DLlama
         draft_model = M2DLlama.load_from_checkpoint(
             args.draft_model, 
             map_location='cpu'
@@ -471,7 +483,9 @@ def main():
     else:
         raise ValueError(f"Unsupported draft model type {args.draft_model_type}.")
 
-    acceptance_rates = []
+    accepted_ratios = []
+    draft_efficiencies = []
+    gammas = []
 
     for prompt_ids in tqdm(data, desc="Evaluate speculative decoding"):
         prompt_len = prompt_ids.shape[-1]
@@ -488,32 +502,15 @@ def main():
             print(tokenizer.decode(
                 outputs["token_ids"].cpu().view(-1).tolist()[prompt_len:]
             ))
-        acceptance_rates.append(
-            outputs["accepted_count"] / outputs["gen_len"]
-        )
+        accepted_ratios.append(outputs["accepted_count"] / outputs["gen_len"])
+        draft_efficiencies.append(outputs["accepted_count"] / outputs["draft_count"])
+        gammas.append(outputs["draft_count"] / outputs["decode_steps"])
 
-    assert len(acceptance_rates) > 0
-    print(f"Average acceptance rate: {sum(acceptance_rates) / len(acceptance_rates) * 100:.2f}%")
+    assert len(accepted_ratios) > 0
+    print(f"Average accepted ratio: {sum(accepted_ratios) / len(accepted_ratios) * 100:.2f}%")
+    print(f"Average draft efficiency: {sum(draft_efficiencies) / len(draft_efficiencies) * 100:.2f}%")
+    print(f"Average gamma: {sum(gammas) / len(gammas):.2f} tokens / step")
 
 
 if __name__ == "__main__":
-    """
-    Example usage:
-
-    python eval_acceptance_rate.py \
-        --dataset_name openai/gsm8k \
-        --subset main \
-        --split test \
-        --prompt_key question \
-        --max_samples 2
-
-    python eval_acceptance_rate.py \
-        --dataset_name openai/gsm8k \
-        --subset main \
-        --split test \
-        --prompt_key question \
-        --max_samples 2 \
-        --draft_model /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-mha-enhance-finish.ckpt \
-        --draft_model_type m2d
-    """
     main()
