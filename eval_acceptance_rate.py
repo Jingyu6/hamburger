@@ -129,7 +129,7 @@ class KVCacheModel():
                 
             for i in range(not_cached_q.shape[-2]):   
                 not_cached_q[:, i, :] = _norm_logits(not_cached_q[:, i, :], self._temperature, self._top_k, self._top_p)    
-                
+            
             self._prob_history = torch.cat([self._prob_history, not_cached_q], dim=1)
             
             last_q = not_cached_q[:, -1, :]
@@ -142,7 +142,7 @@ class KVCacheModel():
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # prefill
             prefix_len = input_ids.shape[-1]
-            outputs = self._model.speculate(input_ids, use_cache=True, is_prefill=True)
+            outputs = self._model.speculate(input_ids, is_prefill=True)
             # add dummy logits since we don't go through the lm head
             self._prob_history = torch.concat([
                 torch.zeros(
@@ -156,7 +156,7 @@ class KVCacheModel():
             self._past_key_values = outputs["past_key_values"]
             
             self._step = outputs["ids"].shape[-1]
-            self._prefix_len = prefix_len + self._step
+            self._prefix_len = self._prob_history.shape[1]
             return outputs["ids"]
         else:
             # decode
@@ -166,7 +166,6 @@ class KVCacheModel():
             
             outputs = self._model.speculate(
                 last_input_ids, 
-                use_cache=True, 
                 is_prefill=False, 
                 prefix_len=self._prefix_len, 
                 past_key_values=self._past_key_values
@@ -179,11 +178,19 @@ class KVCacheModel():
             for i in range(not_cached_q.shape[-2]):   
                 not_cached_q[:, i, :] = _norm_logits(not_cached_q[:, i, :], self._temperature, self._top_k, self._top_p)    
             
-            self._prob_history = torch.cat([self._prob_history, not_cached_q], dim=1)
+            # pad non-computed probabilities
+            self._prob_history = torch.cat([
+                self._prob_history, 
+                torch.zeros(
+                    (1, last_input_ids.shape[-2], self._prob_history.shape[-1]), 
+                    dtype=self._prob_history.dtype, 
+                    device=self._prob_history.device), 
+                not_cached_q
+            ], dim=1)
             self._past_key_values = outputs["past_key_values"]
 
             self._step = outputs["ids"].shape[-1]
-            self._prefix_len += self._step
+            self._prefix_len = self._prob_history.shape[1]
             return outputs["ids"]
         
     def _generate_with_kvcache(
@@ -217,7 +224,7 @@ class KVCacheModel():
         return output
     
     @torch.inference_mode
-    def rollback(self, end_pos: int):
+    def rollback(self, end_pos: int, add_new: bool = False):
         # change to align with new HF API
         if self._model_type == "ar":
             assert end_pos is not None
@@ -240,8 +247,8 @@ class KVCacheModel():
                     self._past_key_values.value_cache[layer_idx] = \
                         self._past_key_values.value_cache[layer_idx][:, :, :kv_len - 1, :]
             
-            self._prob_history = self._prob_history[:, :end_pos, :]
-            self._prefix_len = end_pos
+            self._prob_history = self._prob_history[:, :end_pos, :]        
+            self._prefix_len = self._prob_history.shape[-2] # since end_pos could be smaller than len(prob_history)
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
 @torch.inference_mode
@@ -297,9 +304,6 @@ def speculative_sampling(
 
         x = draft_model_cache.generate(prefix, gamma)
         _ = base_model_cache.generate(x, 1)
-        
-        print(base_model_cache._prob_history.shape)
-        print(draft_model_cache._prob_history.shape)
 
         draft_cnt = x.shape[1] - prefix_len
         n = prefix_len + draft_cnt - 1
@@ -462,6 +466,8 @@ def main():
             args.draft_model, 
             map_location='cpu'
         ).to(args.device)
+
+        draft_model.max_steps -= 1
     else:
         raise ValueError(f"Unsupported draft model type {args.draft_model_type}.")
 

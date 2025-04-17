@@ -160,9 +160,7 @@ class M2DLlama(L.LightningModule):
             if pred_token[0] == self.micro_stop_token_id:
                 break
 
-            output_token_logits.append(logits)
             prob = self._get_prob(logits).item()
-            output_token_probs.append(prob)
 
             if micro_idx > 0 and config.micro_step_confidence is not None:
                 if prob < config.micro_step_confidence:
@@ -175,6 +173,8 @@ class M2DLlama(L.LightningModule):
 
             # update next macro step values
             output_ids.append(pred_token)
+            output_token_logits.append(logits)
+            output_token_probs.append(prob)
 
         return output_ids, output_token_probs, output_token_logits
 
