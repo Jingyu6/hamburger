@@ -90,17 +90,132 @@ class M2DLlama(L.LightningModule):
         self.report = SpeedupReport()
 
     @torch.inference_mode
-    def _inference_forward(self):
-        pass
+    def _macro_step(
+        self, 
+        prefix_ids: torch.Tensor, 
+        prefix_len: int, 
+        is_prefill: bool, 
+        macro_past_key_values: DynamicCache, 
+        config: GenConfig
+    ):
+        token_embeds = self.comp_embedder.single_forward(
+            input_ids=prefix_ids, 
+            disable_merge=is_prefill
+        )[None, ]
+
+        position_ids = torch.arange(0, token_embeds.shape[1], device=self.model.device)[None, ]
+        if not is_prefill:
+            # correct position ids
+            position_ids += prefix_len
+
+        base_output: BaseModelOutputWithPast = self.model.model.forward(
+            inputs_embeds=token_embeds, 
+            position_ids=position_ids, 
+            use_cache=True, 
+            output_hidden_states=True, 
+            return_dict=True, 
+            past_key_values=macro_past_key_values
+        )
+
+        # always takes the last one
+        hidden_states = torch.concat([
+            base_output.hidden_states[layer_idx + 1][:, -1:, :]
+            for layer_idx in self.micro_step_decoder.feature_layer_indices
+        ], dim=1)
+
+        # MICRO STEP
+        # TODO: refactor this to encapsulate everything
+        micro_past_key_values = DynamicCache()
+        hiddens = hidden_states
+        output_ids = []
+        output_token_logits = []
+        output_token_probs = []
+
+        for micro_idx in range(self.max_steps):
+            past_seen_tokens = micro_past_key_values.get_seq_length()
+            cache_position = torch.arange(
+                past_seen_tokens, past_seen_tokens + hiddens.shape[1], device=hiddens.device
+            )
+            position_ids = cache_position.unsqueeze(0)
+
+            for decoder_layer in self.micro_step_decoder.decoders:
+                position_embeddings = self.micro_step_decoder.rotary_emb(
+                    hiddens, 
+                    position_ids
+                )
+
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                    hiddens = decoder_layer.forward(
+                        hiddens, 
+                        use_cache=True, 
+                        past_key_value=micro_past_key_values,
+                        cache_position=cache_position,  
+                        position_embeddings=position_embeddings, 
+                    )[0]
+            
+            logits = self.model.lm_head.forward(hiddens[:, -1:, :])
+            pred_token = logits.argmax(dim=-1).view(-1)
+
+            # stop if we hit micro stop
+            if pred_token[0] == self.micro_stop_token_id:
+                break
+
+            output_token_logits.append(logits)
+            prob = self._get_prob(logits).item()
+            output_token_probs.append(prob)
+
+            if micro_idx > 0 and config.micro_step_confidence is not None:
+                if prob < config.micro_step_confidence:
+                    break
+            
+            # update hidden
+            hiddens = self.comp_embedder.embedding.forward(
+                pred_token
+            )[None, ]
+
+            # update next macro step values
+            output_ids.append(pred_token)
+
+        return output_ids, output_token_probs, output_token_logits
 
     @torch.inference_mode
     def speculate(
         self, 
-        input_ids,  
-        past_key_values, 
-        use_cache, 
+        input_ids: torch.Tensor,  
+        past_key_values: Optional[DynamicCache] = None, 
+        prefix_len: int = 0, 
+        is_prefill: bool = False, 
+        config: Optional[GenConfig] = None, 
+        **kwargs
     ):
-        pass
+        self.eval()
+
+        if config is None:
+            config = GenConfig()
+
+        if past_key_values is None:
+            macro_past_key_values = DynamicCache()
+        else:
+            macro_past_key_values = past_key_values
+
+        if not is_prefill:
+            assert prefix_len > 0
+        
+        assert input_ids.shape[0] == 1, "Currently only support batch size = 1."
+
+        ids, _, logits = self._macro_step(
+            prefix_ids=input_ids.view(-1), 
+            prefix_len=prefix_len, 
+            is_prefill=is_prefill, 
+            macro_past_key_values=macro_past_key_values, 
+            config=config
+        )
+
+        return {
+            "ids": torch.stack(ids, dim=-1), 
+            "logits": torch.concat(logits, dim=1), 
+            "past_key_values": macro_past_key_values
+        }
 
     @torch.inference_mode
     def generate(
@@ -130,13 +245,6 @@ class M2DLlama(L.LightningModule):
             return_tensors='pt', 
             return_dict=True
         )["input_ids"][0].to(self.model.device)
-
-        # logits processor
-        logit_processor = None
-        if config.repetition_penalty is not None:
-            logit_processor = RepetitionPenaltyLogitsProcessor(
-                penalty=config.repetition_penalty
-            )
         
         # create a cache object
         macro_past_key_values = DynamicCache()
@@ -150,93 +258,19 @@ class M2DLlama(L.LightningModule):
 
         # MACRO STEP
         for macro_idx in range(config.decode_steps):
-            token_embeds = self.comp_embedder.single_forward(
-                input_ids=input_ids, 
-                disable_merge=(macro_idx == 0)
-            )[None, ]
-
-            position_ids = torch.arange(0, token_embeds.shape[1], device=self.model.device)[None, ]
-            if macro_idx != 0:
-                # correct position ids
-                position_ids += total_len
-
-            base_output: BaseModelOutputWithPast = self.model.model.forward(
-                inputs_embeds=token_embeds, 
-                position_ids=position_ids, 
-                use_cache=True, 
-                output_hidden_states=True, 
-                return_dict=True, 
-                past_key_values=macro_past_key_values
+            ids, probs, _ = self._macro_step(
+                prefix_ids=input_ids, 
+                prefix_len=total_len, 
+                is_prefill=(macro_idx == 0), 
+                macro_past_key_values=macro_past_key_values, 
+                config=config
             )
 
-            # always takes the last one
-            hidden_states = torch.concat([
-                base_output.hidden_states[layer_idx + 1][:, -1:, :]
-                for layer_idx in self.micro_step_decoder.feature_layer_indices
-            ], dim=1)
-
-            # MICRO STEP
-            # TODO: refactor this to encapsulate everything
-            micro_past_key_values = DynamicCache()
-            hiddens = hidden_states
-            input_ids = []
-
-            for micro_idx in range(self.max_steps):
-                past_seen_tokens = micro_past_key_values.get_seq_length()
-                cache_position = torch.arange(
-                    past_seen_tokens, past_seen_tokens + hiddens.shape[1], device=hiddens.device
-                )
-                position_ids = cache_position.unsqueeze(0)
-
-                for decoder_layer in self.micro_step_decoder.decoders:
-                    position_embeddings = self.micro_step_decoder.rotary_emb(
-                        hiddens, 
-                        position_ids
-                    )
-
-                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                        hiddens = decoder_layer.forward(
-                            hiddens, 
-                            use_cache=True, 
-                            past_key_value=micro_past_key_values,
-                            cache_position=cache_position,  
-                            position_embeddings=position_embeddings, 
-                        )[0]
-                
-                logits = self.model.lm_head.forward(hiddens[:, -1:, :])
-
-                # apply penalty
-                if logit_processor is not None and micro_idx == 0:
-                    logits = logit_processor(
-                        input_ids=history_ids[None, ], 
-                        scores=logits[0],
-                    )
-
-                pred_token = logits.argmax(dim=-1).view(-1)
-
-                # stop if we hit micro stop
-                if pred_token[0] == self.micro_stop_token_id:
-                    break
-
-                prob = self._get_prob(logits).item()
-                output_token_probs.append(prob)
-
-                if micro_idx > 0 and config.micro_step_confidence is not None:
-                    if prob < config.micro_step_confidence:
-                        break
-                
-                # update hidden
-                hiddens = self.comp_embedder.embedding.forward(
-                    pred_token
-                )[None, ]
-
-                # update next macro step values
-                input_ids.append(pred_token)
-
-            input_ids = torch.concat(input_ids).flatten()
+            input_ids = torch.concat(ids).flatten()
             total_len += len(input_ids)
             output_token_ids.append(input_ids)
             history_ids = torch.concat([history_ids, input_ids], dim=-1)
+            output_token_probs.extend(probs)
 
             if any(input_ids == self.tokenizer.eos_token_id):
                 break

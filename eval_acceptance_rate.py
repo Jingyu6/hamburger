@@ -78,11 +78,13 @@ class KVCacheModel():
     def __init__(
         self, 
         model: nn.Module, 
+        model_type: str, 
         temperature: float = 1, 
         top_k: int = 0, 
         top_p: float = 0
     ) -> None:
         self._model = model
+        self._model_type = model_type
         self._past_key_values = None
         self._prob_history = None
 
@@ -90,7 +92,11 @@ class KVCacheModel():
         self._top_k = top_k
         self._top_p = top_p
 
-    def _forward_with_kvcache(self, input_ids: torch.Tensor) -> torch.Tensor:
+        # for m2d models
+        self._prefix_len = 0
+        self._step = None
+
+    def _ar_forward_with_kvcache(self, input_ids: torch.Tensor) -> torch.Tensor:
         if self._past_key_values is None:
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # the first forward (prefill) returns the prompt's logits
@@ -98,7 +104,7 @@ class KVCacheModel():
             self._prob_history = outputs["logits"]
             for i in range(self._prob_history.shape[-2]):   
                 self._prob_history[:, i, :] = _norm_logits(self._prob_history[:, i, :], self._temperature, self._top_k, self._top_p)
-            self._past_key_values = outputs.past_key_values
+            self._past_key_values = outputs["past_key_values"]
             last_q = self._prob_history[:, -1, :]
         else:
             # return the last token's logits
@@ -127,10 +133,59 @@ class KVCacheModel():
             self._prob_history = torch.cat([self._prob_history, not_cached_q], dim=1)
             
             last_q = not_cached_q[:, -1, :]
-            self._past_key_values = outputs.past_key_values
+            self._past_key_values = outputs["past_key_values"]
         
-        return last_q
+        return _sample(last_q)
+    
+    def _m2d_forward_with_kvcache(self, input_ids: torch.Tensor) -> torch.Tensor:
+        if self._past_key_values is None:
+            assert self._prob_history is None, f"{self._prob_history.shape}"
+            # prefill
+            prefix_len = input_ids.shape[-1]
+            outputs = self._model.speculate(input_ids, use_cache=True, is_prefill=True)
+            # add dummy logits since we don't go through the lm head
+            self._prob_history = torch.concat([
+                torch.zeros(
+                    (1, prefix_len - 1, outputs["logits"].shape[-1]), 
+                    dtype=outputs["logits"].dtype, 
+                    device=outputs["logits"].device), 
+                outputs["logits"]
+            ], dim=1)
+            for i in range(self._prob_history.shape[-2]):   
+                self._prob_history[:, i, :] = _norm_logits(self._prob_history[:, i, :], self._temperature, self._top_k, self._top_p)
+            self._past_key_values = outputs["past_key_values"]
+            
+            self._step = outputs["ids"].shape[-1]
+            self._prefix_len = prefix_len + self._step
+            return outputs["ids"]
+        else:
+            # decode
+            last_input_ids = input_ids[:, self._prefix_len:]
+            if last_input_ids.dim() == 1:
+                last_input_ids = torch.unsqueeze(last_input_ids, 0)
+            
+            outputs = self._model.speculate(
+                last_input_ids, 
+                use_cache=True, 
+                is_prefill=False, 
+                prefix_len=self._prefix_len, 
+                past_key_values=self._past_key_values
+            )
+            
+            not_cached_q = outputs["logits"]
+            if not_cached_q.dim() == 2:
+                not_cached_q = torch.unsqueeze(not_cached_q, 0)
+                
+            for i in range(not_cached_q.shape[-2]):   
+                not_cached_q[:, i, :] = _norm_logits(not_cached_q[:, i, :], self._temperature, self._top_k, self._top_p)    
+            
+            self._prob_history = torch.cat([self._prob_history, not_cached_q], dim=1)
+            self._past_key_values = outputs["past_key_values"]
 
+            self._step = outputs["ids"].shape[-1]
+            self._prefix_len += self._step
+            return outputs["ids"]
+        
     def _generate_with_kvcache(
         self, prefix : torch.Tensor, 
         gamma : int, 
@@ -146,35 +201,55 @@ class KVCacheModel():
         """
         x = prefix
 
-        for _ in range(gamma):
-            q = self._forward_with_kvcache(x)
-            next_tok = _sample(q)
-            x = torch.cat((x, next_tok), dim=1)
+        if self._model_type == "ar":
+            for _ in range(gamma):
+                next_tok = self._ar_forward_with_kvcache(x)
+                x = torch.cat((x, next_tok), dim=1)
+        elif self._model_type == "m2d":
+            # note gamma is not used here
+            next_toks = self._m2d_forward_with_kvcache(x)
+            x = torch.cat((x, next_toks), dim=1)
         return x
 
-    @torch.no_grad()
+    @torch.inference_mode
     def generate(self, input: torch.Tensor, gamma: int) -> torch.Tensor:
         output = self._generate_with_kvcache(input, gamma)
         return output
     
-    @torch.no_grad()
+    @torch.inference_mode
     def rollback(self, end_pos: int):
         # change to align with new HF API
-        self._past_key_values._seen_tokens = end_pos
-        for layer_idx in range(len(self._past_key_values.value_cache)):
-            self._past_key_values.key_cache[layer_idx] = \
-                self._past_key_values.key_cache[layer_idx][:, :, :end_pos, :]
-            self._past_key_values.value_cache[layer_idx] = \
-                self._past_key_values.value_cache[layer_idx][:, :, :end_pos, :]
-        self._prob_history = self._prob_history[:, :end_pos, :]
+        if self._model_type == "ar":
+            assert end_pos is not None
+            self._past_key_values._seen_tokens = end_pos
+            for layer_idx in range(len(self._past_key_values.value_cache)):
+                self._past_key_values.key_cache[layer_idx] = \
+                    self._past_key_values.key_cache[layer_idx][:, :, :end_pos, :]
+                self._past_key_values.value_cache[layer_idx] = \
+                    self._past_key_values.value_cache[layer_idx][:, :, :end_pos, :]
+            self._prob_history = self._prob_history[:, :end_pos, :]
 
+        elif self._model_type == "m2d":
+            if end_pos == self._prefix_len - self._step:
+                # we only remove the last macro KV if all tokens are rejected
+                kv_len = self._past_key_values._seen_tokens
+                self._past_key_values._seen_tokens -= 1
+                for layer_idx in range(len(self._past_key_values.value_cache)):
+                    self._past_key_values.key_cache[layer_idx] = \
+                        self._past_key_values.key_cache[layer_idx][:, :, :kv_len - 1, :]
+                    self._past_key_values.value_cache[layer_idx] = \
+                        self._past_key_values.value_cache[layer_idx][:, :, :kv_len - 1, :]
+            
+            self._prob_history = self._prob_history[:, :end_pos, :]
+            self._prefix_len = end_pos
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
-@torch.no_grad()
+@torch.inference_mode
 def speculative_sampling(
     prefix: torch.Tensor, 
     base_model: torch.nn.Module, 
     draft_model: torch.nn.Module, 
+    draft_model_type: str, 
     max_gen_len: int, 
     gamma: int = 4,
     temperature: float = 1, 
@@ -210,24 +285,27 @@ def speculative_sampling(
     
     device = base_model.device
     
-    draft_model_cache = KVCacheModel(draft_model, temperature, top_k, top_p)
-    base_model_cache = KVCacheModel(base_model, temperature, top_k, top_p)
+    draft_model_cache = KVCacheModel(draft_model, draft_model_type, temperature, top_k, top_p)
+    base_model_cache = KVCacheModel(base_model, "ar", temperature, top_k, top_p)
     
     resample_count = 0
     base_sample_count = 0
     accepted_count = 0
     
     while prefix.shape[1] < T:
-        # q = M_q[prefix + x_0, x_1, .., x_(gamma-2)]
         prefix_len = prefix.shape[1]
 
         x = draft_model_cache.generate(prefix, gamma)
         _ = base_model_cache.generate(x, 1)
         
-        n = prefix_len + gamma - 1
-        
-        for i in range(gamma):
-            r = torch.rand(1, device = device)
+        print(base_model_cache._prob_history.shape)
+        print(draft_model_cache._prob_history.shape)
+
+        draft_cnt = x.shape[1] - prefix_len
+        n = prefix_len + draft_cnt - 1
+
+        for i in range(draft_cnt):
+            r = torch.rand(1, device=device)
             j = x[:, prefix_len + i]
             
             if r > (base_model_cache._prob_history[:, prefix_len + i - 1, j]) / (draft_model_cache._prob_history[:, prefix_len + i - 1, j]):
@@ -241,27 +319,27 @@ def speculative_sampling(
         prefix = x[:, :n + 1]
 
         # check for stop during acceptance
-        if torch.any(prefix[:, prefix_len:n+1] == eos_token_id):
+        if torch.any(prefix[:, prefix_len:n + 1] == eos_token_id):
             # this might give a few tokens off but does not
             # change the final stats significantly
             break
         
-        draft_model_cache.rollback(n + 1)
+        draft_model_cache.rollback(end_pos=n + 1)
         
         assert draft_model_cache._prob_history.shape[-2] <= n + 1, f"approx_model prob list shape {draft_model_cache._prob_history.shape}, n {n}"
         
-        if n < prefix_len + gamma - 1:
+        if n < prefix_len + draft_cnt - 1:
             # reject someone, sample from the pos n
             t = _sample(_max_fn(base_model_cache._prob_history[:, n, :] - draft_model_cache._prob_history[:, n, :]))
             resample_count += 1
-            base_model_cache.rollback(n + 1)
+            base_model_cache.rollback(end_pos=n + 1)
         else:
             # all approx model decoding accepted
             assert n == base_model_cache._prob_history.shape[1] - 1
             t = _sample(base_model_cache._prob_history[:, -1, :])
             base_sample_count += 1
-            base_model_cache.rollback(n + 2)
-        
+            base_model_cache.rollback(end_pos=n + 2)
+
         prefix = torch.cat((prefix, t), dim=1)
 
         # check again for stop during acceptance
@@ -324,7 +402,7 @@ def parse_args():
         default='meta-llama/Llama-3.2-1B-Instruct',
         help='HuggingFace model ID or path for draft model')
     parser.add_argument('--draft_model_type', type=str, 
-        default='hf', choices=["hf", "m2d"], 
+        default='ar', choices=["ar", "m2d"], 
         help='What model type is used as the draft model')
     parser.add_argument("--device", type=str, default="cuda:0", 
         help='Device name')
@@ -369,7 +447,7 @@ def main():
 
     base_model.speculate = base_model.forward
 
-    if args.draft_model_type == "hf":
+    if args.draft_model_type == "ar":
         draft_model = AutoModelForCausalLM.from_pretrained(
             args.draft_model, 
             trust_remote_code=True, 
@@ -394,6 +472,7 @@ def main():
         outputs = speculative_sampling(
             prefix=prompt_ids.to(base_model.device), 
             draft_model=draft_model, 
+            draft_model_type=args.draft_model_type, 
             base_model=base_model, 
             max_gen_len=args.max_gen_len, 
             gamma=args.gamma, 
@@ -420,6 +499,15 @@ if __name__ == "__main__":
         --subset main \
         --split test \
         --prompt_key question \
-        --max_samples 8
+        --max_samples 2
+
+    python eval_acceptance_rate.py \
+        --dataset_name openai/gsm8k \
+        --subset main \
+        --split test \
+        --prompt_key question \
+        --max_samples 2 \
+        --draft_model /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-mha-enhance-finish.ckpt \
+        --draft_model_type m2d
     """
     main()
