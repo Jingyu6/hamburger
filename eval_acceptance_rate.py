@@ -196,7 +196,7 @@ class KVCacheModel():
                 self._prob_history = torch.cat([
                     self._prob_history, 
                     torch.zeros(
-                        (1, last_input_ids.shape[-2], self._prob_history.shape[-1]), 
+                        (1, last_input_ids.shape[-1] - 1, self._prob_history.shape[-1]), 
                         dtype=self._prob_history.dtype, 
                         device=self._prob_history.device), 
                 ], dim=1)
@@ -255,7 +255,7 @@ class KVCacheModel():
 
         elif self._model_type == "m2d":
             # determine the number of KVs we need to evict
-            prefix_len = self._prob_history.shape[-1]
+            prefix_len = self._prob_history.shape[-2]
 
             delete_kv_cnt = 0
             for step in reversed(self._steps):
