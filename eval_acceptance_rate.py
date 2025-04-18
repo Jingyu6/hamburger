@@ -326,6 +326,9 @@ def speculative_sampling(
     accepted_count = 0
     draft_count = 0
     decode_steps = 0
+
+    decode_start = None
+    decode_end = None
     
     while prefix.shape[1] < T:
         prefix_len = prefix.shape[1]
@@ -380,6 +383,14 @@ def speculative_sampling(
         if torch.any(t == eos_token_id):
             break
 
+        if decode_start is None:
+            decode_start = time.time()
+
+    if decode_start is None:
+        print(f"Warning: stop at the first token")
+        decode_start = time.time()
+    decode_end = time.time()
+
     return {
         "token_ids": prefix, 
         "gen_len": prefix.shape[-1] - seq_len, 
@@ -387,7 +398,8 @@ def speculative_sampling(
         "draft_count": draft_count, 
         "accepted_count": accepted_count, 
         "base_sample_count": base_sample_count, 
-        "resample_count": resample_count
+        "resample_count": resample_count, 
+        "decode_time": (decode_end - decode_start)
     }
 
 
@@ -510,8 +522,8 @@ def main():
     draft_efficiencies = []
     gammas = []
     gen_lens = []
+    total_decode_time = 0
 
-    start_time = time.time()
     for prompt_ids in tqdm(data, desc="Evaluate speculative decoding"):
         prompt_len = prompt_ids.shape[-1]
         outputs = speculative_sampling(
@@ -531,14 +543,14 @@ def main():
         draft_efficiencies.append(outputs["accepted_count"] / outputs["draft_count"])
         gammas.append(outputs["draft_count"] / outputs["decode_steps"])
         gen_lens.append(outputs["gen_len"])
-    end_time = time.time()
+        total_decode_time += outputs["decode_time"]
 
     assert len(accepted_ratios) > 0
     print(f"Average accepted ratio: {sum(accepted_ratios) / len(accepted_ratios) * 100:.2f}%")
     print(f"Average draft efficiency: {sum(draft_efficiencies) / len(draft_efficiencies) * 100:.2f}%")
     print(f"Average gamma: {sum(gammas) / len(gammas):.2f} tokens / step")
     print(f"Average generation length: {sum(gen_lens) / len(gen_lens):.2f} tokens")
-    print(f"Average decoding TPS: {sum(gen_lens) / (end_time - start_time):.2f} tokens / sec")
+    print(f"Average decoding TPS: {sum(gen_lens) / (total_decode_time):.2f} tokens / sec")
 
 
 if __name__ == "__main__":
