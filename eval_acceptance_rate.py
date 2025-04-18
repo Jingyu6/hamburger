@@ -1,5 +1,6 @@
 import argparse
 import random
+import time
 from typing import Optional
 
 import torch
@@ -75,7 +76,8 @@ def _norm_logits(logits : torch.Tensor, temperature : float, top_k : float, top_
 def _sample(probs : torch.Tensor, num_samples: int = 1):
     idx_next = torch.multinomial(probs, num_samples=num_samples)
     if (idx_next.item() == 0):
-        raise RuntimeError
+        # in case of invalid values, we simply use greedy
+        return torch.argmax(probs, dim=-1, keepdim=True)
     return idx_next
 
 
@@ -140,7 +142,7 @@ class KVCacheModel():
             last_q = not_cached_q[:, -1, :]
             self._past_key_values = outputs["past_key_values"]
         
-        return _sample(last_q)
+        return torch.argmax(last_q, dim=-1, keepdim=True)
     
     def _m2d_forward_with_kvcache(self, input_ids: torch.Tensor, idx: int) -> torch.Tensor:
         if self._past_key_values is None:
@@ -272,6 +274,7 @@ class KVCacheModel():
                         self._past_key_values.value_cache[layer_idx][:, :, :kv_len - delete_kv_cnt, :]
             
             self._prob_history = self._prob_history[:, :end_pos, :]        
+
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
 @torch.inference_mode
@@ -499,10 +502,16 @@ def main():
     else:
         raise ValueError(f"Unsupported draft model type {args.draft_model_type}.")
 
+    print(f"Start evaluating dataset {args.dataset_name} with {len(data)} samples.")
+    print(f"Base model: {args.base_model}")
+    print(f"Draft model: {args.draft_model}")
+
     accepted_ratios = []
     draft_efficiencies = []
     gammas = []
+    gen_lens = []
 
+    start_time = time.time()
     for prompt_ids in tqdm(data, desc="Evaluate speculative decoding"):
         prompt_len = prompt_ids.shape[-1]
         outputs = speculative_sampling(
@@ -521,11 +530,15 @@ def main():
         accepted_ratios.append(outputs["accepted_count"] / outputs["gen_len"])
         draft_efficiencies.append(outputs["accepted_count"] / outputs["draft_count"])
         gammas.append(outputs["draft_count"] / outputs["decode_steps"])
+        gen_lens.append(outputs["gen_len"])
+    end_time = time.time()
 
     assert len(accepted_ratios) > 0
     print(f"Average accepted ratio: {sum(accepted_ratios) / len(accepted_ratios) * 100:.2f}%")
     print(f"Average draft efficiency: {sum(draft_efficiencies) / len(draft_efficiencies) * 100:.2f}%")
     print(f"Average gamma: {sum(gammas) / len(gammas):.2f} tokens / step")
+    print(f"Average generation length: {sum(gen_lens) / len(gen_lens):.2f} tokens")
+    print(f"Average decoding TPS: {sum(gen_lens) / (end_time - start_time):.2f} tokens / sec")
 
 
 if __name__ == "__main__":
