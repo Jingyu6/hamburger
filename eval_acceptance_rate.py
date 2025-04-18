@@ -13,7 +13,7 @@ from m2d.config import GenConfig
 from m2d.model.llama import M2DLlama
 
 GEN_CONFIG = GenConfig(
-    micro_step_confidence=None
+    micro_step_confidence=0.9
 )
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
@@ -99,8 +99,7 @@ class KVCacheModel():
         self._top_p = top_p
 
         # for m2d models
-        self._prefix_len = 0
-        self._step = None
+        self._steps = None
 
     def _ar_forward_with_kvcache(self, input_ids: torch.Tensor) -> torch.Tensor:
         if self._past_key_values is None:
@@ -143,7 +142,7 @@ class KVCacheModel():
         
         return _sample(last_q)
     
-    def _m2d_forward_with_kvcache(self, input_ids: torch.Tensor) -> torch.Tensor:
+    def _m2d_forward_with_kvcache(self, input_ids: torch.Tensor, idx: int) -> torch.Tensor:
         if self._past_key_values is None:
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # prefill
@@ -161,19 +160,23 @@ class KVCacheModel():
                 self._prob_history[:, i, :] = _norm_logits(self._prob_history[:, i, :], self._temperature, self._top_k, self._top_p)
             self._past_key_values = outputs["past_key_values"]
             
-            self._step = outputs["ids"].shape[-1]
-            self._prefix_len = self._prob_history.shape[1]
+            self._steps = [outputs["ids"].shape[-1]]
             return outputs["ids"]
         else:
             # decode
-            last_input_ids = input_ids[:, self._prefix_len:]
+            prefix_len = self._prob_history.shape[-2]
+            if idx == 0:
+                last_input_ids = input_ids[:, prefix_len:]
+            else:
+                last_input_ids = input_ids[:, prefix_len - self._steps[-1]:]
+
             if last_input_ids.dim() == 1:
                 last_input_ids = torch.unsqueeze(last_input_ids, 0)
-            
+                
             outputs = self._model.speculate(
                 last_input_ids, 
                 is_prefill=False, 
-                prefix_len=self._prefix_len, 
+                prefix_len=prefix_len, 
                 past_key_values=self._past_key_values, 
                 config=GEN_CONFIG
             )
@@ -185,19 +188,24 @@ class KVCacheModel():
             for i in range(not_cached_q.shape[-2]):   
                 not_cached_q[:, i, :] = _norm_logits(not_cached_q[:, i, :], self._temperature, self._top_k, self._top_p)    
             
-            # pad non-computed probabilities
-            self._prob_history = torch.cat([
-                self._prob_history, 
-                torch.zeros(
-                    (1, last_input_ids.shape[-2], self._prob_history.shape[-1]), 
-                    dtype=self._prob_history.dtype, 
-                    device=self._prob_history.device), 
-                not_cached_q
-            ], dim=1)
+            if idx == 0:
+                # pad non-computed probabilities
+                # because we received extra tokens from the base model
+                self._prob_history = torch.cat([
+                    self._prob_history, 
+                    torch.zeros(
+                        (1, last_input_ids.shape[-2], self._prob_history.shape[-1]), 
+                        dtype=self._prob_history.dtype, 
+                        device=self._prob_history.device), 
+                ], dim=1)
+
+            self._prob_history = torch.cat([self._prob_history, not_cached_q], dim=1)
             self._past_key_values = outputs["past_key_values"]
 
-            self._step = outputs["ids"].shape[-1]
-            self._prefix_len = self._prob_history.shape[1]
+            if idx == 0:
+                self._steps = [outputs["ids"].shape[-1]]
+            else:
+                self._steps.append(outputs["ids"].shape[-1])
             return outputs["ids"]
         
     def _generate_with_kvcache(
@@ -214,14 +222,14 @@ class KVCacheModel():
             Torch.Tensor: prefix+generated tokens
         """
         x = prefix
-
-        if self._model_type == "ar":
-            for _ in range(gamma):
-                next_tok = self._ar_forward_with_kvcache(x)
-                x = torch.cat((x, next_tok), dim=1)
-        elif self._model_type == "m2d":
-            # note gamma is not used here
-            next_toks = self._m2d_forward_with_kvcache(x)
+        for idx in range(gamma):
+            if self._model_type == "ar":
+                next_toks = self._ar_forward_with_kvcache(x)
+            elif self._model_type == "m2d":
+                # note gamma is not used here
+                next_toks = self._m2d_forward_with_kvcache(x, idx=idx)
+            else:
+                raise ValueError
             x = torch.cat((x, next_toks), dim=1)
         return x
 
@@ -244,18 +252,26 @@ class KVCacheModel():
             self._prob_history = self._prob_history[:, :end_pos, :]
 
         elif self._model_type == "m2d":
-            if end_pos == self._prefix_len - self._step:
+            # determine the number of KVs we need to evict
+            prefix_len = self._prob_history.shape[-1]
+
+            delete_kv_cnt = 0
+            for step in reversed(self._steps):
+                prefix_len -= step
+                if end_pos <= prefix_len:
+                    delete_kv_cnt += 1
+
+            if delete_kv_cnt > 0:
                 # we only remove the last macro KV if all tokens are rejected
                 kv_len = self._past_key_values._seen_tokens
-                self._past_key_values._seen_tokens -= 1
+                self._past_key_values._seen_tokens -= delete_kv_cnt
                 for layer_idx in range(len(self._past_key_values.value_cache)):
                     self._past_key_values.key_cache[layer_idx] = \
-                        self._past_key_values.key_cache[layer_idx][:, :, :kv_len - 1, :]
+                        self._past_key_values.key_cache[layer_idx][:, :, :kv_len - delete_kv_cnt, :]
                     self._past_key_values.value_cache[layer_idx] = \
-                        self._past_key_values.value_cache[layer_idx][:, :, :kv_len - 1, :]
+                        self._past_key_values.value_cache[layer_idx][:, :, :kv_len - delete_kv_cnt, :]
             
             self._prob_history = self._prob_history[:, :end_pos, :]        
-            self._prefix_len = self._prob_history.shape[-2] # since end_pos could be smaller than len(prob_history)
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
 @torch.inference_mode
