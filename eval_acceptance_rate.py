@@ -226,7 +226,7 @@ class KVCacheModel():
             if self._model_type == "ar":
                 next_toks = self._ar_forward_with_kvcache(x)
             elif self._model_type == "m2d":
-                # note gamma is not used here
+                # we might end up draft more than gamma due to multi-step decode
                 next_toks = self._m2d_forward_with_kvcache(x, idx=idx)
             else:
                 raise ValueError
