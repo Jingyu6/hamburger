@@ -9,8 +9,6 @@ import transformers.modeling_flash_attention_utils as utils
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.cache_utils import DynamicCache
-from transformers.generation.logits_process import \
-    RepetitionPenaltyLogitsProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from m2d.config import GenConfig

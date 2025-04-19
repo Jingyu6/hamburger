@@ -7,7 +7,7 @@ python eval_acceptance_rate.py \
     --subset main \
     --split test \
     --prompt_key question \
-    --max_samples 32
+    --max_samples 64
 
 python eval_acceptance_rate.py \
     --base_model meta-llama/Llama-3.1-8B-Instruct \
@@ -17,7 +17,7 @@ python eval_acceptance_rate.py \
     --subset main \
     --split test \
     --prompt_key question \
-    --max_samples 32
+    --max_samples 64
 
 # Humaneval
 python eval_acceptance_rate.py \
@@ -27,7 +27,7 @@ python eval_acceptance_rate.py \
     --dataset_name openai/openai_humaneval \
     --split test \
     --prompt_key prompt \
-    --max_samples 32
+    --max_samples 64
 
 python eval_acceptance_rate.py \
     --base_model meta-llama/Llama-3.1-8B-Instruct \
@@ -36,7 +36,7 @@ python eval_acceptance_rate.py \
     --dataset_name openai/openai_humaneval \
     --split test \
     --prompt_key prompt \
-    --max_samples 32
+    --max_samples 64
 
 # Arc Challenge
 python eval_acceptance_rate.py \
@@ -47,15 +47,14 @@ python eval_acceptance_rate.py \
     --subset ARC-Challenge \
     --split test \
     --prompt_key question \
-    --max_samples 32
+    --max_samples 64
 
 python eval_acceptance_rate.py \
-    --base_model meta-llama/Llama-3.1-8B-Instruct \
     --draft_model /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-mha-enhance-finish.ckpt \
     --draft_model_type m2d \
     --dataset_name allenai/ai2_arc \
     --subset ARC-Challenge \
     --split test \
     --prompt_key question \
-    --max_samples 32
+    --max_samples 64
 

@@ -14,7 +14,7 @@ from m2d.config import GenConfig
 from m2d.model.llama import M2DLlama
 
 GEN_CONFIG = GenConfig(
-    micro_step_confidence=0.9
+    micro_step_confidence=None
 )
 
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
@@ -288,7 +288,8 @@ def speculative_sampling(
     temperature: float = 1, 
     top_k: int = 0, 
     top_p: float = 0, 
-    eos_token_id: Optional[int] = None
+    eos_token_id: Optional[int] = None, 
+    print_latency: bool = False
 ):
     """
     Google version Speculative Sampling.
@@ -333,13 +334,18 @@ def speculative_sampling(
     while prefix.shape[1] < T:
         prefix_len = prefix.shape[1]
 
+        draft_start = time.time()
         x = draft_model_cache.generate(prefix, gamma)
+        draft_end = time.time()
         _ = base_model_cache.generate(x, 1)
 
         draft_cnt = x.shape[1] - prefix_len
         draft_count += draft_cnt
         n = prefix_len + draft_cnt - 1
         decode_steps += 1
+
+        if print_latency:
+            print(f"Drafting {draft_cnt} tokens in {(draft_end - draft_start):.2f} seconds.")
 
         for i in range(draft_cnt):
             r = torch.rand(1, device=device)
@@ -462,8 +468,13 @@ def parse_args():
     
     parser.add_argument('--print_output', action="store_true", default=False, 
         help="Whether to print the generated output")
+    parser.add_argument('--print_latency', action="store_true", default=False, 
+        help="Whether to print the latency of drafting")
     parser.add_argument('--seed', type=int, default=227,
         help='Random seed for experiments')
+    
+    parser.add_argument('--compile', action="store_true", default=False, 
+        help="Whether to torch.compile the model")
     
     return parser.parse_args()
 
@@ -514,6 +525,11 @@ def main():
     else:
         raise ValueError(f"Unsupported draft model type {args.draft_model_type}.")
 
+    if args.compile:
+        print("Compiling models.")
+        base_model = torch.compile(base_model)
+        draft_model = torch.compile(draft_model)
+
     print(f"Start evaluating dataset {args.dataset_name} with {len(data)} samples.")
     print(f"Base model: {args.base_model}")
     print(f"Draft model: {args.draft_model}")
@@ -533,7 +549,8 @@ def main():
             base_model=base_model, 
             max_gen_len=args.max_gen_len, 
             gamma=args.gamma, 
-            eos_token_id=tokenizer.eos_token_id
+            eos_token_id=tokenizer.eos_token_id, 
+            print_latency=args.print_latency
         )
         if args.print_output:
             print(tokenizer.decode(
