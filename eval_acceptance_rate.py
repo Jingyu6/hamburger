@@ -11,7 +11,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from m2d.config import GenConfig
-from m2d.model.llama import M2DLlama
+from m2d.model.llama import M2DLlama, MergeMode
 
 GEN_CONFIG = GenConfig(
     micro_step_confidence=None
@@ -149,7 +149,11 @@ class KVCacheModel():
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # prefill
             prefix_len = input_ids.shape[-1]
-            outputs = self._model.speculate(input_ids, is_prefill=True, config=GEN_CONFIG)
+            outputs = self._model.speculate(
+                input_ids, 
+                merge_mode=MergeMode.PREFILL_NO_MERGE, 
+                config=GEN_CONFIG
+            )
             # add dummy logits since we don't go through the lm head
             self._prob_history = torch.concat([
                 torch.zeros(
@@ -176,9 +180,9 @@ class KVCacheModel():
                 last_input_ids = torch.unsqueeze(last_input_ids, 0)
                 
             outputs = self._model.speculate(
-                last_input_ids, 
-                is_prefill=False, 
+                last_input_ids,  
                 prefix_len=prefix_len, 
+                merge_mode=MergeMode.DECODE_SEP_LAST if idx == 0 else MergeMode.DECODE_MERGE, 
                 past_key_values=self._past_key_values, 
                 config=GEN_CONFIG
             )
@@ -563,6 +567,7 @@ def main():
         total_decode_time += outputs["decode_time"]
 
     assert len(accepted_ratios) > 0
+    print("\nSummary: ")
     print(f"Average accepted ratio: {sum(accepted_ratios) / len(accepted_ratios) * 100:.2f}%")
     print(f"Average draft efficiency: {sum(draft_efficiencies) / len(draft_efficiencies) * 100:.2f}%")
     print(f"Average gamma: {sum(gammas) / len(gammas):.2f} tokens / step")
