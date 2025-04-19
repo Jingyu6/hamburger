@@ -17,6 +17,8 @@ GEN_CONFIG = GenConfig(
     micro_step_confidence=None
 )
 
+SEP_LAST = False
+
 # Adopted from https://github.com/feifeibear/LLMSpeculativeSampling
 def _max_fn(x):
     """
@@ -178,11 +180,15 @@ class KVCacheModel():
 
             if last_input_ids.dim() == 1:
                 last_input_ids = torch.unsqueeze(last_input_ids, 0)
-                
+            
+            merge_mode = MergeMode.DECODE_SEP_LAST \
+                if idx == 0 and SEP_LAST \
+                else MergeMode.DECODE_MERGE
+
             outputs = self._model.speculate(
                 last_input_ids,  
                 prefix_len=prefix_len, 
-                merge_mode=MergeMode.DECODE_SEP_LAST if idx == 0 else MergeMode.DECODE_MERGE, 
+                merge_mode=merge_mode, 
                 past_key_values=self._past_key_values, 
                 config=GEN_CONFIG
             )
@@ -462,6 +468,8 @@ def parse_args():
     parser.add_argument('--draft_model_type', type=str, 
         default='ar', choices=["ar", "m2d"], 
         help='What model type is used as the draft model')
+    parser.add_argument('--draft_sep_last', action="store_true", 
+        default=False)
     parser.add_argument("--device", type=str, default="cuda:0", 
         help='Device name')
     
@@ -488,6 +496,9 @@ def main():
 
     random.seed(args.seed)    
     torch.manual_seed(args.seed)
+
+    global SEP_LAST
+    SEP_LAST = args.draft_sep_last
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=True)
 
@@ -534,10 +545,6 @@ def main():
         base_model = torch.compile(base_model)
         draft_model = torch.compile(draft_model)
 
-    print(f"Start evaluating dataset {args.dataset_name} with {len(data)} samples.")
-    print(f"Base model: {args.base_model}")
-    print(f"Draft model: {args.draft_model}")
-
     accepted_ratios = []
     draft_efficiencies = []
     gammas = []
@@ -568,6 +575,9 @@ def main():
 
     assert len(accepted_ratios) > 0
     print("\nSummary: ")
+    print(f"Eval dataset {args.dataset_name} with {len(data)} samples.")
+    print(f"Base model: {args.base_model}")
+    print(f"Draft model: {args.draft_model}")
     print(f"Average accepted ratio: {sum(accepted_ratios) / len(accepted_ratios) * 100:.2f}%")
     print(f"Average draft efficiency: {sum(draft_efficiencies) / len(draft_efficiencies) * 100:.2f}%")
     print(f"Average gamma: {sum(gammas) / len(gammas):.2f} tokens / step")

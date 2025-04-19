@@ -17,7 +17,8 @@ python eval_acceptance_rate.py \
     --subset main \
     --split test \
     --prompt_key question \
-    --max_samples 64
+    --max_samples 64 \
+    --draft_sep_last
 
 # Humaneval
 python eval_acceptance_rate.py \
@@ -36,7 +37,8 @@ python eval_acceptance_rate.py \
     --dataset_name openai/openai_humaneval \
     --split test \
     --prompt_key prompt \
-    --max_samples 64
+    --max_samples 64 \
+    --draft_sep_last
 
 # Arc Challenge
 python eval_acceptance_rate.py \
@@ -56,5 +58,5 @@ python eval_acceptance_rate.py \
     --subset ARC-Challenge \
     --split test \
     --prompt_key question \
-    --max_samples 64
-
+    --max_samples 64 \
+    --draft_sep_last
