@@ -355,7 +355,7 @@ def speculative_sampling(
         decode_steps += 1
 
         if print_latency:
-            print(f"Drafting {draft_cnt} tokens in {(draft_end - draft_start):.2f} seconds.")
+            print(f"Drafting {draft_cnt} tokens in {(draft_end - draft_start):.5f} seconds.")
 
         for i in range(draft_cnt):
             r = torch.rand(1, device=device)
@@ -403,7 +403,6 @@ def speculative_sampling(
             decode_start = time.time()
 
     if decode_start is None:
-        print(f"Warning: stop at the first token")
         decode_start = time.time()
     decode_end = time.time()
 
@@ -575,7 +574,7 @@ def main():
 
     assert len(accepted_ratios) > 0
     print("\nSummary: ")
-    print(f"Eval dataset {args.dataset_name} with {len(data)} samples.")
+    print(f"Eval dataset: {args.dataset_name} with {len(data)} samples.")
     print(f"Base model: {args.base_model}")
     print(f"Draft model: {args.draft_model}")
     print(f"Average accepted ratio: {sum(accepted_ratios) / len(accepted_ratios) * 100:.2f}%")

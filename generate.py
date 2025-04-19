@@ -1,3 +1,5 @@
+import time
+
 import lightning as L
 import torch
 from transformers import pipeline
@@ -9,7 +11,7 @@ L.seed_everything(227)
 
 # create model
 m2d_model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-merge-finish.ckpt", 
+    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-mha-enhance-finish.ckpt", 
     map_location='cpu'
 ).to('cuda')
 
@@ -33,7 +35,8 @@ while True:
             reason = input("\033[32mReason mode [yes]/no?\033[0m ")
             if reason in ["", "yes", "no"]:
                 break
-
+        
+        gen_start = time.time()
         output = m2d_model.generate(
             prompt=prompt, 
             config=GenConfig(
@@ -43,6 +46,7 @@ while True:
                 remove_think=(reason in ["", "yes"])
             )
         )
+        gen_end = time.time()
 
         print("================================")
         print("Output:\n", output["output"])
@@ -52,12 +56,16 @@ while True:
         print("Speedup:\n", output["speedup"])
 
     elif model == "base":
+        gen_start = time.time()
         output = base_model(
             [{"role": "user", "content": prompt}], 
             max_new_tokens=MAX_GEN_LEN
         )
+        gen_end = time.time()
 
         print("================================")
         print("Output:\n", output[0]["generated_text"][1]["content"])
     else:
         raise ValueError(f"Unknown model: {model}")
+
+    print(f"Generation latency: {gen_end - gen_start:.5f}s")
