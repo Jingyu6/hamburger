@@ -2,6 +2,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
+from m2d.data.strategies import STRATEGIES
 from m2d.plot_utils import plot_values
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", use_fast=True)
@@ -34,6 +35,10 @@ while True:
     mode = input("Visualize mode [entropy, prob]: ")
     if mode in ["entropy", "prob"]:
         break
+while True:
+    strategy = input("Segmentation strategy: ")
+    if strategy in list(STRATEGIES.keys()) + ['none']:
+        break
 
 output: CausalLMOutputWithPast = model.forward(
     input_ids=input_ids,
@@ -61,5 +66,6 @@ else:
 plot_values(
     token_str_list=token_str_list[1:], 
     value_list=value_list, 
-    save_path=f'./local/{mode}_sw={sliding_window}.png'
+    save_path=f'./local/{mode}_sw={sliding_window}.png', 
+    steps=STRATEGIES[strategy](value_list, 4) if strategy != 'none' else None
 )
