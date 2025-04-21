@@ -154,27 +154,28 @@ class M2DLlama(L.LightningModule):
         output_token_probs = []
 
         for micro_idx in range(self.max_steps):
-            past_seen_tokens = micro_past_key_values.get_seq_length()
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + hiddens.shape[1], device=hiddens.device
-            )
-            position_ids = cache_position.unsqueeze(0)
-
-            for decoder_layer in self.micro_step_decoder.decoders:
-                position_embeddings = self.micro_step_decoder.rotary_emb(
-                    hiddens, 
-                    position_ids
+            if micro_idx > 0:
+                past_seen_tokens = micro_past_key_values.get_seq_length()
+                cache_position = torch.arange(
+                    past_seen_tokens, past_seen_tokens + hiddens.shape[1], device=hiddens.device
                 )
+                position_ids = cache_position.unsqueeze(0)
 
-                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                    hiddens = decoder_layer.forward(
+                for decoder_layer in self.micro_step_decoder.decoders:
+                    position_embeddings = self.micro_step_decoder.rotary_emb(
                         hiddens, 
-                        use_cache=True, 
-                        past_key_value=micro_past_key_values,
-                        cache_position=cache_position,  
-                        position_embeddings=position_embeddings, 
-                    )[0]
-            
+                        position_ids
+                    )
+
+                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                        hiddens = decoder_layer.forward(
+                            hiddens, 
+                            use_cache=True, 
+                            past_key_value=micro_past_key_values,
+                            cache_position=cache_position,  
+                            position_embeddings=position_embeddings, 
+                        )[0]
+                
             logits = self.model.lm_head.forward(hiddens[:, -1:, :])
             pred_token = logits.argmax(dim=-1).view(-1)
 
@@ -189,9 +190,15 @@ class M2DLlama(L.LightningModule):
                     break
             
             # update hidden
-            hiddens = self.comp_embedder.embedding.forward(
-                pred_token
-            )[None, ]
+            if micro_idx > 0:
+                hiddens = self.comp_embedder.embedding.forward(
+                    pred_token
+                )[None, ]
+            else:
+                hiddens = torch.concat([
+                    hiddens, 
+                    self.comp_embedder.embedding.forward(pred_token)[None, ]
+                ], dim=1)
 
             # update next macro step values
             output_ids.append(pred_token)

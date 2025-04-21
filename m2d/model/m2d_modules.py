@@ -206,6 +206,9 @@ class ConditionalMicroStepDecoder(nn.Module):
         # [batched macro step, num of features, model size]
         macro_step_hiddens = torch.concat(macro_step_hiddens, dim=1)
 
+        # skip hidden for the first tokens: -1 means the original hidden output
+        skip_hiddens = macro_step_hiddens[:, -1:, :]
+
         # pad token embeds
         token_embeds.append(torch.zeros(self.max_steps, macro_step_hiddens.shape[-1]).to(macro_step_hiddens.device))
         token_embeds = pad_sequence(token_embeds, batch_first=True, padding_value=0)[:-1]
@@ -223,4 +226,7 @@ class ConditionalMicroStepDecoder(nn.Module):
             )[0]
 
         # [total_seq_len, max_steps, model_size]
-        return hiddens[:, num_features - 1:, :]
+        return torch.concat([
+            skip_hiddens, 
+            hiddens[:, num_features:, :]
+        ],dim=1)
