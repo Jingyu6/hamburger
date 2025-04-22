@@ -387,20 +387,20 @@ class M2DLlama(L.LightningModule):
         hidden_states = base_output.hidden_states[1:]
 
         # micro step decoding [num_of_decodes, max_steps, model_size]
-        micro_step_outputs = self.micro_step_decoder.forward(
+        micro_step_outputs, stop_outputs = self.micro_step_decoder.forward(
             hidden_states=hidden_states, 
             token_embeds=unmerged_embeds, # not sure if we want to use detach here
             comp_seq_lens=comp_seq_lens, 
             inst_lens=inst_lens
         )
 
-        micro_step_outputs = self._trim_micro_steps(micro_step_outputs, steps)
+        assert self.model.config.pretraining_tp == 1
 
         # calculate logits
-        assert self.model.config.pretraining_tp == 1
-        logits = self.model.lm_head.forward(micro_step_outputs)
+        logits = self.model.lm_head.forward(self._trim_micro_steps(micro_step_outputs, steps))
+        stops = self._trim_micro_steps(stop_outputs, steps)
 
-        return logits
+        return logits, stops
 
     def _trim_micro_steps(
         self,
@@ -423,7 +423,7 @@ class M2DLlama(L.LightningModule):
             step.extend(s)
         trim_data = []
         for s, d in zip(step, data):
-            trim_data.append(d[:s+1])
+            trim_data.append(d[:s])
         return torch.concat(trim_data, dim=0)
 
     def _get_targets(
@@ -433,65 +433,82 @@ class M2DLlama(L.LightningModule):
         inst_lens: List[int], 
         steps: List[List[int]] 
     ):
-        targets = []
+        label_targets = []
+        stop_positions = []
         offset = 0
         for seq_len, inst_len, step in zip(seq_lens, inst_lens, steps):
-            targets.extend(
+            label_targets.extend(
                 input_ids[offset + inst_len:offset + seq_len].split(
                     split_size=step, 
                     dim=0
                 )
             )
+            stop_positions.extend(step)
             offset += seq_len
+        
         # add a dummy tensor at the end to make sure all tensors are of size max_steps
-        targets.append(torch.arange(0, self.max_steps + 1).to(input_ids.device))
-        targets = pad_sequence(targets, batch_first=True, padding_value=self.micro_stop_token_id)
-        return self._trim_micro_steps(targets[:-1], steps)
+        label_targets.append(torch.arange(0, self.max_steps).to(input_ids.device))
+        label_targets = pad_sequence(label_targets, batch_first=True, padding_value=self.micro_stop_token_id)[:-1]
+        label_targets = self._trim_micro_steps(label_targets, steps)
+
+        stop_positions = torch.LongTensor(stop_positions).to(label_targets.device)
+        stop_positions = torch.cumsum(stop_positions, dim=0) - 1
+        stop_targets = torch.zeros_like(label_targets)
+        stop_targets.scatter_(dim=0, index=stop_positions, value=1)
+
+        return label_targets, stop_targets
 
     def _calc_loss(
         self, 
-        logits: torch.Tensor, 
+        values: torch.Tensor, 
         targets: torch.Tensor
     ):
         loss_fct = torch.nn.CrossEntropyLoss()
-        loss = loss_fct(logits.float(), targets)
+        loss = loss_fct(values.float(), targets)
         return loss
 
     def _calc_accuracy(
         self, 
         logits: torch.Tensor, 
-        targets: torch.Tensor
+        stops: torch.Tensor, 
+        label_targets: torch.Tensor, 
+        stop_targets: torch.Tensor, 
+        steps: List[List[int]]
     ):
-        pred = logits.argmax(dim=-1)
-        correct_mask = (pred == targets)
-        non_stop_mask = (targets != self.micro_stop_token_id)
+        token_pred = logits.argmax(dim=-1)
+        token_correct_mask = (token_pred == label_targets)
+        token_acc = torch.sum(token_correct_mask) / len(label_targets.view(-1))
 
-        # total accuracy
-        acc_all = torch.sum(correct_mask) / len(targets.view(-1))
-
-        # excluded accuracy (normalized)
-        acc_exc = torch.sum(correct_mask & non_stop_mask) / torch.sum(non_stop_mask)
+        stop_pred = stops.argmax(dim=-1)
+        stop_correct_mask = (stop_pred == stop_targets)
+        stop_acc = torch.sum(stop_correct_mask) / len(stop_targets.view(-1))
 
         metrics = {
-            "eval_token_acc_all": acc_all, 
-            "eval_token_acc_excluded": acc_exc
+            "eval_token_acc": token_acc, 
+            "eval_stop_acc": stop_acc
         }
 
+        flattened_steps = [0]
+        for step in steps:
+            flattened_steps.extend(step)
+        flattened_steps = torch.cumsum(
+            torch.LongTensor(flattened_steps).to(token_correct_mask.device), dim=0)
+
         def _calc_step_mask(step):
-            mask = torch.zeros_like(non_stop_mask, dtype=torch.bool)
-            last = -1
-            for i in range(mask.shape[0]):
-                if non_stop_mask[i] == False:
-                    last = i
-                elif i - last == step:
-                    mask[i] = True
+            mask = torch.zeros_like(token_correct_mask, dtype=torch.bool)
+            for i in range(len(flattened_steps) - 1):
+                start = flattened_steps[i]
+                end = flattened_steps[i + 1]
+                pos = start + step
+                if pos < end:
+                    mask[pos] = True
             return mask
 
-        # per-step metrics
-        for step in range(1, self.max_steps + 1):
+        # # per-step metrics
+        for step in range(self.max_steps):
             step_mask = _calc_step_mask(step)
-            acc_step = torch.sum(correct_mask & step_mask) / (torch.sum(step_mask) + 1e-9)
-            metrics[f"eval_token_acc_s{step}"] = acc_step
+            acc_step = torch.sum(token_correct_mask & step_mask) / (torch.sum(step_mask) + 1e-9)
+            metrics[f"eval_token_acc_s{step + 1}"] = acc_step
 
         return metrics
 
@@ -504,13 +521,15 @@ class M2DLlama(L.LightningModule):
             "steps": steps
         }
         """
-        logits = self.forward(**batch)
-        targets = self._get_targets(**batch)
-        loss = self._calc_loss(logits, targets)
+        logits, stops = self.forward(**batch)
+        label_targets, stop_targets = self._get_targets(**batch)
+        label_loss = self._calc_loss(logits, label_targets)
+        stop_loss = self._calc_loss(stops, stop_targets)
+        loss = label_loss + stop_loss * 0.2
 
         log_dict = {
-            "train_loss": loss, 
-            "train_perplexity": torch.exp(loss)
+            "train_loss": label_loss, 
+            "train_perplexity": torch.exp(label_loss)
         }
 
         if self.distill_kl is not None:
@@ -535,16 +554,21 @@ class M2DLlama(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        logits = self.forward(**batch)
-        targets = self._get_targets(**batch)
-        loss = self._calc_loss(logits, targets)
+        logits, stops = self.forward(**batch)
+        label_targets, stop_targets = self._get_targets(**batch)
+        label_loss = self._calc_loss(logits, label_targets)
 
         log_dict = {
-            "eval_loss": loss, 
-            "eval_perplexity": torch.exp(loss)
+            "eval_loss": label_loss, 
+            "eval_perplexity": torch.exp(label_loss)
         }
 
-        log_dict.update(self._calc_accuracy(logits, targets))
+        log_dict.update(self._calc_accuracy(
+            logits, 
+            stops, 
+            label_targets, 
+            stop_targets, 
+            batch["steps"]))
 
         self.log_dict(
             log_dict, 

@@ -168,10 +168,20 @@ class ConditionalMicroStepDecoder(nn.Module):
         super().__init__()
         self.max_steps = max_steps
         assert self.max_steps >= 1
+        # decoder
         self.num_layers = 4
         self.decoders = nn.ModuleList([
             LlamaDecoderLayer(config=config, layer_idx=layer_idx) 
             for layer_idx in range(self.num_layers)])
+        # stop prediction
+        hidden_size = config.hidden_size
+        model_dtype = config.torch_dtype
+        self.stop_head = nn.Sequential(
+            nn.SiLU(), 
+            nn.Linear(hidden_size, hidden_size, bias=False, dtype=model_dtype), 
+            nn.SiLU(), 
+            nn.Linear(hidden_size, 2, bias=False, dtype=model_dtype), 
+        )
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.feature_layer_indices = [3, 7, 11, 15]
 
@@ -209,13 +219,16 @@ class ConditionalMicroStepDecoder(nn.Module):
         # skip hidden for the first tokens: -1 means the original hidden output
         skip_hiddens = macro_step_hiddens[:, -1:, :]
 
+        # first trim off the last label
+        for i in range(len(token_embeds)):
+            token_embeds[i] = token_embeds[i][:-1, :]
         # pad token embeds
-        token_embeds.append(torch.zeros(self.max_steps, macro_step_hiddens.shape[-1]).to(macro_step_hiddens.device))
+        token_embeds.append(torch.zeros(self.max_steps - 1, macro_step_hiddens.shape[-1]).to(macro_step_hiddens.device))
         token_embeds = pad_sequence(token_embeds, batch_first=True, padding_value=0)[:-1]
         
         # concate together
         hiddens = torch.concat([macro_step_hiddens, token_embeds], dim=1)
-        position_ids = torch.arange(0, self.max_steps + num_features)[None, ].to(hiddens.device)
+        position_ids = torch.arange(0, num_features + self.max_steps - 1)[None, ].to(hiddens.device)
 
         for decoder_layer in self.decoders:
             position_embeddings = self.rotary_emb(hiddens, position_ids)
@@ -226,7 +239,10 @@ class ConditionalMicroStepDecoder(nn.Module):
             )[0]
 
         # [total_seq_len, max_steps, model_size]
-        return torch.concat([
+        micro_step_outputs = torch.concat([
             skip_hiddens, 
             hiddens[:, num_features:, :]
         ],dim=1)
+        stop_outputs = self.stop_head.forward(micro_step_outputs)
+        
+        return micro_step_outputs, stop_outputs
