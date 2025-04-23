@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import transformers.modeling_flash_attention_utils as utils
-from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer, LlamaForCausalLM
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
@@ -441,11 +440,7 @@ class M2DLlama(L.LightningModule):
             stop_positions.extend(step)
             offset += seq_len
         
-        # add a dummy tensor at the end to make sure all tensors are of size max_steps
-        label_targets.append(torch.arange(0, self.max_steps).to(input_ids.device))
-        label_targets = pad_sequence(label_targets, batch_first=True, padding_value=self.micro_stop_token_id)[:-1]
-        label_targets = self._trim_micro_steps(label_targets, steps)
-
+        label_targets = torch.concat(label_targets, dim=0)
         stop_positions = torch.LongTensor(stop_positions).to(label_targets.device)
         stop_positions = torch.cumsum(stop_positions, dim=0) - 1
         stop_targets = torch.zeros_like(label_targets)
@@ -456,9 +451,15 @@ class M2DLlama(L.LightningModule):
     def _calc_loss(
         self, 
         values: torch.Tensor, 
-        targets: torch.Tensor
+        targets: torch.Tensor, 
+        loss_type: str = "ce"
     ):
-        loss_fct = torch.nn.CrossEntropyLoss()
+        if loss_type == "ce":
+            loss_fct = torch.nn.CrossEntropyLoss()
+        elif loss_type == "bce":
+            loss_fct = torch.nn.BCEWithLogitsLoss()
+            targets = targets.float().unsqueeze(-1)
+
         loss = loss_fct(values.float(), targets)
         return loss
 
@@ -474,8 +475,7 @@ class M2DLlama(L.LightningModule):
         token_correct_mask = (token_pred == label_targets)
         token_acc = torch.sum(token_correct_mask) / len(label_targets.view(-1))
 
-        stop_pred = stops.argmax(dim=-1)
-        stop_correct_mask = (stop_pred == stop_targets)
+        stop_correct_mask = ((stops.view(-1) > 0) == (stop_targets > 0.5))
         stop_acc = torch.sum(stop_correct_mask) / len(stop_targets.view(-1))
 
         metrics = {
@@ -519,8 +519,8 @@ class M2DLlama(L.LightningModule):
         logits, stops = self.forward(**batch)
         label_targets, stop_targets = self._get_targets(**batch)
         label_loss = self._calc_loss(logits, label_targets)
-        stop_loss = self._calc_loss(stops, stop_targets)
-        loss = label_loss + stop_loss * 0.2
+        stop_loss = self._calc_loss(stops, stop_targets, loss_type='bce')
+        loss = label_loss + stop_loss * 0.5
 
         log_dict = {
             "train_loss": label_loss, 

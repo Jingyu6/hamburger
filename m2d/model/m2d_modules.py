@@ -180,7 +180,9 @@ class ConditionalMicroStepDecoder(nn.Module):
             nn.SiLU(), 
             nn.Linear(hidden_size, hidden_size, bias=False, dtype=model_dtype), 
             nn.SiLU(), 
-            nn.Linear(hidden_size, 2, bias=False, dtype=model_dtype), 
+            nn.Linear(hidden_size, hidden_size, bias=False, dtype=model_dtype), 
+            nn.SiLU(), 
+            nn.Linear(hidden_size, 1, bias=False, dtype=model_dtype), 
         )
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.feature_layer_indices = [3, 7, 11, 15]
