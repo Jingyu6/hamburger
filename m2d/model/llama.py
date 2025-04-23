@@ -194,7 +194,8 @@ class M2DLlama(L.LightningModule):
             output_token_probs.append(prob)
 
             if config.micro_step_confidence is not None:
-                if pred_stop < config.micro_step_confidence:
+                # we stop if our continue confident is less than X
+                if (1.0 - pred_stop) < config.micro_step_confidence:
                     break
             elif pred_stop > 0.5:
                 break

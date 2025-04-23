@@ -11,7 +11,7 @@ L.seed_everything(227)
 
 # create model
 m2d_model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-mha-skip-finish.ckpt", 
+    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-skip-finish.ckpt", 
     map_location='cpu'
 ).to('cuda')
 
