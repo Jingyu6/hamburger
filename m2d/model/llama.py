@@ -172,15 +172,11 @@ class M2DLlama(L.LightningModule):
                         )[0]
             
             stops = self.micro_step_decoder.stop_head.forward(hiddens[:, -1:, :])
-            pred_stop = stops.argmax(dim=-1).view(-1)
+            pred_stop = F.softmax(stops, dim=-1).view(-1)
             logits = self.model.lm_head.forward(hiddens[:, -1:, :])
             pred_token = logits.argmax(dim=-1).view(-1)
 
             prob = self._get_prob(logits).item()
-
-            if micro_idx > 0 and config.micro_step_confidence is not None:
-                if prob < config.micro_step_confidence:
-                    break
             
             # update hidden
             if micro_idx > 0:
@@ -198,7 +194,10 @@ class M2DLlama(L.LightningModule):
             output_token_logits.append(logits)
             output_token_probs.append(prob)
 
-            if pred_stop.item() == 1:
+            if config.micro_step_confidence is not None:
+                if pred_stop[0] < config.micro_step_confidence:
+                    break
+            elif pred_stop.argmax(0) == 1:
                 break
 
         return output_ids, output_token_probs, output_token_logits

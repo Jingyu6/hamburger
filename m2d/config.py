@@ -60,7 +60,7 @@ class GenConfig(_LoadableConfig):
     system_message: Optional[str] = None
     remove_think: bool = False
     extra_think_steps: int = 512
-    micro_step_confidence: Optional[float] = 0.9
+    micro_step_confidence: Optional[float] = 0.8
 
     @property
     def decode_steps(self):
