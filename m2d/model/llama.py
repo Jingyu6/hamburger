@@ -175,13 +175,11 @@ class M2DLlama(L.LightningModule):
                             cache_position=cache_position,  
                             position_embeddings=position_embeddings, 
                         )[0]
-                
+            
+            stops = self.micro_step_decoder.stop_head.forward(hiddens[:, -1:, :])
+            pred_stop = stops.argmax(dim=-1).view(-1)
             logits = self.model.lm_head.forward(hiddens[:, -1:, :])
             pred_token = logits.argmax(dim=-1).view(-1)
-
-            # stop if we hit micro stop
-            if pred_token[0] == self.micro_stop_token_id:
-                break
 
             prob = self._get_prob(logits).item()
 
@@ -204,6 +202,9 @@ class M2DLlama(L.LightningModule):
             output_ids.append(pred_token)
             output_token_logits.append(logits)
             output_token_probs.append(prob)
+
+            if pred_stop.item() == 1:
+                break
 
         return output_ids, output_token_probs, output_token_logits
 
