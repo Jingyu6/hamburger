@@ -82,6 +82,14 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
 - 2025/04/10:
     * We found that using confidence to early stop can substantially improve the quality. 
     * We found that using a residual + dimension-wise softmax for merger is helpful.
+- 2025/04/23:
+    * Finished spec eval
+    * Our acceptance rate is lower for target models of the same family
+    * Our acceptance rate is slightly lower for target models of different family but the problem is that the average drafting count is almost the same as baseline
+    * What can we try next:
+        - Maybe we can try few shot data to help with gsm8k
+        - We should definitely do segmentation strategy studies (the strong evidence is that if we constrain outputs based on confidence, its uniformly better. )
+    * The problem seems to be the generalization
 
 ### Some Studies
 
