@@ -58,6 +58,7 @@ class M2DConfig(_LoadableConfig):
 class GenConfig(_LoadableConfig):
     max_gen_len: int = 256
     system_message: Optional[str] = None
+    apply_chat_template: bool = True
     remove_think: bool = False
     extra_think_steps: int = 512
     micro_step_confidence: Optional[float] = 0.9

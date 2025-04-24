@@ -253,22 +253,29 @@ class M2DLlama(L.LightningModule):
         if config is None:
             config = GenConfig()
 
-        if prompt is not None:
-            conversation = [{"role": "user", "content": prompt}]
-        else:
-            assert conversation is not None
-        
-        if config.system_message is not None:
-            if conversation[0]["role"] == "system":
-                print("Warning: Input already has a system message while attemping to add another one.")
-            conversation = [{"role": "system", "content": config.system_message}] + conversation
+        if config.apply_chat_template:
+            if prompt is not None:
+                conversation = [{"role": "user", "content": prompt}]
+            else:
+                assert conversation is not None
+            
+            if config.system_message is not None:
+                if conversation[0]["role"] == "system":
+                    print("Warning: Input already has a system message while attemping to add another one.")
+                conversation = [{"role": "system", "content": config.system_message}] + conversation
 
-        input_ids = self.tokenizer.apply_chat_template(
-            conversation, 
-            add_generation_prompt=True, 
-            return_tensors='pt', 
-            return_dict=True
-        )["input_ids"][0].to(self.model.device)
+            input_ids = self.tokenizer.apply_chat_template(
+                conversation, 
+                add_generation_prompt=True, 
+                return_tensors='pt', 
+                return_dict=True
+            )["input_ids"][0].to(self.model.device)
+        else:
+            assert prompt is not None
+            input_ids = self.tokenizer.encode(
+                prompt, 
+                return_tensors='pt'
+            )[0].to(self.model.device)
         
         # create a cache object
         macro_past_key_values = DynamicCache()
