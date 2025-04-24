@@ -47,7 +47,7 @@ class M2DDataModule(L.LightningDataModule):
                     self.data_summary[path] = len(ds) * replicate_cnt
                 else:
                     new_len = int(len(ds) * replicate_cnt)
-                    data_list.append(ds.take(new_len))
+                    data_list.append(ds.shuffle().take(new_len))
                     self.data_summary[path] = new_len
 
             data = concatenate_datasets(data_list)
