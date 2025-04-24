@@ -6,3 +6,6 @@ lm_eval
 langdetect
 immutabledict
 evalplus[vllm]
+jieba
+fuzzywuzzy
+rouge
