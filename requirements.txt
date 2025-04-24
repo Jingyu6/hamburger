@@ -9,3 +9,4 @@ evalplus[vllm]
 jieba
 fuzzywuzzy
 rouge
+python-Levenshtein

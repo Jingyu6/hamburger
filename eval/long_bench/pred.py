@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
+from transformers import pipeline
 
 sys.path.append("../../")
 from m2d.config import GenConfig
@@ -54,7 +55,11 @@ def get_predictions(
         prompt = prompt_format.format(**json_obj)
 
         if model_type == "hf":
-            raise NotImplemented
+            outputs = model(
+                [{"role": "user", "content": prompt}], 
+                max_new_tokens=max_gen
+            )
+            pred = outputs[0]["generated_text"][1]["content"]
         elif model_type == "m2d":
             outputs = model.generate(
                 prompt=prompt, 
@@ -90,7 +95,17 @@ if __name__ == "__main__":
     model_name = args.model
 
     # build model
-    model = M2DLlama.load_from_checkpoint(args.model).to('cuda')
+    if args.model_type == "hf":
+        model = pipeline(
+            task="text-generation", 
+            model=args.model, 
+            torch_dtype=torch.bfloat16, 
+            device_map="cuda"
+        )
+    elif args.model_type == "m2d":
+        model = M2DLlama.load_from_checkpoint(args.model).to('cuda')
+    else:
+        raise ValueError
 
     # build dataset
     if args.e:
@@ -102,10 +117,13 @@ if __name__ == "__main__":
             datasets = ["qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report", "multi_news", \
                 "trec", "triviaqa", "samsum", "passage_count", "passage_retrieval_en", "lcc", "repobench-p"]
     else:
+        # datasets = ["narrativeqa", "qasper", "multifieldqa_en", "multifieldqa_zh", "hotpotqa", "2wikimqa", "musique", \
+        #             "dureader", "gov_report", "qmsum", "multi_news", "vcsum", "trec", "triviaqa", "samsum", "lsht", \
+        #             "passage_count", "passage_retrieval_en", "passage_retrieval_zh", "lcc", "repobench-p"]
         datasets = ["narrativeqa", "qasper", "multifieldqa_en", "multifieldqa_zh", "hotpotqa", "2wikimqa", "musique", \
-                    "dureader", "gov_report", "qmsum", "multi_news", "vcsum", "trec", "triviaqa", "samsum", "lsht", \
-                    "passage_count", "passage_retrieval_en", "passage_retrieval_zh", "lcc", "repobench-p"]
-    
+            "dureader", "gov_report", "qmsum", "multi_news", "vcsum", \
+            "passage_count", "passage_retrieval_en", "passage_retrieval_zh"]
+
     dataset2prompt = json.load(open("./configs/dataset2prompt.json", "r"))
     dataset2maxlen = json.load(open("./configs/dataset2maxlen.json", "r"))
 
