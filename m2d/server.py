@@ -18,7 +18,7 @@ class M2DLitAPI(ls.LitAPI):
     def setup(self, device):
         print(f"Using device={device}")
         self.model: M2DLlama = M2DLlama.load_from_checkpoint(
-            "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-skip-finish.ckpt"
+            "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-data-skip-step=20480.ckpt"
         ).to(device)
 
     def predict(self, conversation, context):
