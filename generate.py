@@ -46,6 +46,7 @@ while True:
                 break
         
         streamer = TextStreamer(tokenizer=hf_tokenizer, skip_prompt=True)
+        streamer.next_tokens_are_prompt = False # remove artifacts
 
         output = m2d_model.generate(
             prompt=prompt, 
