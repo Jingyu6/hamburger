@@ -1,3 +1,5 @@
+import os
+
 import lightning as L
 import torch
 from transformers import (AutoModelForCausalLM, AutoTokenizer, TextStreamer,
@@ -33,6 +35,9 @@ SYS_MSG = "You're a helpful AI assistant, and think carefully before giving your
 while True:
     model = input("\033[32mWhat model to use [m2d/base]?\033[0m ")
     prompt = input("\033[32mInput:\033[0m\n")
+    if os.path.exists(prompt):
+        with open(prompt, 'r') as f:
+            prompt = f.read()
 
     if model == "m2d":
         while True:
@@ -47,7 +52,6 @@ while True:
             config=GenConfig(
                 max_gen_len=MAX_GEN_LEN, 
                 system_message=SYS_MSG if (reason in ["", "yes"]) else None, 
-                # repetition_penalty=1.2, 
                 remove_think=(reason in ["", "yes"])
             ), 
             streamer=streamer
