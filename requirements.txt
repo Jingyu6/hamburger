@@ -6,6 +6,7 @@ lm_eval
 langdetect
 immutabledict
 evalplus[vllm]
+# For Long Bench
 jieba
 fuzzywuzzy
 rouge
