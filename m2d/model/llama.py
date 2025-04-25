@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import transformers.modeling_flash_attention_utils as utils
-from transformers import AutoTokenizer, LlamaForCausalLM
+from transformers import AutoTokenizer, LlamaForCausalLM, TextStreamer
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
@@ -246,7 +246,8 @@ class M2DLlama(L.LightningModule):
         self, 
         prompt: Optional[str] = None, 
         conversation: Optional[List[Dict]] = None, 
-        config: Optional[GenConfig] = None
+        config: Optional[GenConfig] = None, 
+        streamer: Optional[TextStreamer] = None
     ) -> str:
         self.eval()
 
@@ -303,12 +304,18 @@ class M2DLlama(L.LightningModule):
             history_ids = torch.concat([history_ids, input_ids], dim=-1)
             output_token_probs.extend(probs)
 
+            if streamer is not None:
+                streamer.put(input_ids[None, ].cpu())
+
             if any(input_ids == self.tokenizer.eos_token_id):
                 break
 
             if (total_len - seq_len) >= config.max_gen_len:
                 break
         
+        if streamer is not None:
+            streamer.end()
+
         all_token_ids = torch.concat(output_token_ids, dim=0).cpu()
         output = self.tokenizer.decode(all_token_ids, skip_special_tokens=True)
         token_str_list = self.tokenizer.batch_decode(all_token_ids.view(-1))
