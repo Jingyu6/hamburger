@@ -1,8 +1,7 @@
-import time
-
 import lightning as L
 import torch
-from transformers import pipeline
+from transformers import (AutoModelForCausalLM, AutoTokenizer, TextStreamer,
+                          pipeline)
 
 from m2d.config import GenConfig
 from m2d.model.llama import M2DLlama
@@ -11,16 +10,21 @@ L.seed_everything(227)
 
 # create model
 m2d_model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-data-skip-step=20480.ckpt", 
+    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-skip-finish.ckpt", 
     map_location='cpu'
 ).to('cuda')
+m2d_tokenizer = AutoTokenizer.from_pretrained(m2d_model.base_model_name)
 
-base_model = pipeline(
-    task="text-generation", 
-    model="meta-llama/Llama-3.2-1B-Instruct", 
+hf_model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-3.2-1B-Instruct", 
+    trust_remote_code=True, 
     torch_dtype=torch.bfloat16, 
-    device_map="cuda"
+    attn_implementation="flash_attention_2",
+    device_map='cuda', 
 )
+hf_tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
+hf_tokenizer.pad_token = hf_tokenizer.eos_token
+base_model = pipeline(task="text-generation", model=hf_model, tokenizer=hf_tokenizer)
 
 MAX_GEN_LEN = 1024
 
@@ -36,7 +40,8 @@ while True:
             if reason in ["", "yes", "no"]:
                 break
         
-        gen_start = time.time()
+        streamer = TextStreamer(tokenizer=hf_tokenizer, skip_prompt=True)
+
         output = m2d_model.generate(
             prompt=prompt, 
             config=GenConfig(
@@ -44,28 +49,21 @@ while True:
                 system_message=SYS_MSG if (reason in ["", "yes"]) else None, 
                 # repetition_penalty=1.2, 
                 remove_think=(reason in ["", "yes"])
-            )
+            ), 
+            streamer=streamer
         )
-        gen_end = time.time()
 
-        print("================================")
-        print("Output:\n", output["output"])
         print("================================")
         print("Micro Token Output:\n", output["micro_token_output"])
         print("================================")
         print("Speedup:\n", output["speedup"])
 
     elif model == "base":
-        gen_start = time.time()
+        streamer = TextStreamer(tokenizer=hf_tokenizer, skip_prompt=True)
         output = base_model(
             [{"role": "user", "content": prompt}], 
-            max_new_tokens=MAX_GEN_LEN
+            max_new_tokens=MAX_GEN_LEN, 
+            streamer=streamer
         )
-        gen_end = time.time()
-
-        print("================================")
-        print("Output:\n", output[0]["generated_text"][1]["content"])
     else:
         raise ValueError(f"Unknown model: {model}")
-
-    print(f"Generation latency: {gen_end - gen_start:.5f}s")
