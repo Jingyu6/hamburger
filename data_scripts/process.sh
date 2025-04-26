@@ -268,3 +268,34 @@ python -m m2d.data.m2d_data \
   --max_len $MAX_LEN \
   --max_num_samples 1000000 \
   --strategy $STRATEGY
+
+python -m m2d.data.m2d_data \
+  --dataset_name "hotpotqa/hotpot_qa" \
+  --save_path "$SAVE_DIR/hotpotqa" \
+  --subset "fullwiki" \
+  --split "train" \
+  --inst_name "prompt" \
+  --resp_name "answer" \
+  --max_len $MAX_LEN \
+  --map_fn 'lambda example: {"prompt": "Answer the question based on the below context (do not explain):\n" + "\n".join([f"Title:\n{t}\nPassage:\n{s}" for t, s in zip(example["context"]["title"], example["context"]["sentences"])]) + "\nQuestion: " + example["question"]}' \
+  --strategy $STRATEGY
+
+python -m m2d.data.m2d_data \
+  --dataset_name "mrqa-workshop/mrqa" \
+  --save_path "$SAVE_DIR/mrqa" \
+  --split "train" \
+  --inst_name "prompt" \
+  --resp_name "response" \
+  --max_len $MAX_LEN \
+  --map_fn 'lambda example: {"prompt": example["context"] + "\nBased on the above context, answer without explanation: " + example["question"], "response": example["answers"][0]}' \
+  --strategy $STRATEGY
+
+python -m m2d.data.m2d_data \
+  --dataset_name "deepmind/narrativeqa" \
+  --save_path "$SAVE_DIR/narrativeqa" \
+  --split "train" \
+  --inst_name "prompt" \
+  --resp_name "response" \
+  --max_len $MAX_LEN \
+  --map_fn 'lambda example: {"prompt": example["document"]["summary"]["text"] + "\nBased on the above context, answer without explanation: " + example["question"]["text"], "response": example["answers"][0]["text"]}' \
+  --strategy $STRATEGY
