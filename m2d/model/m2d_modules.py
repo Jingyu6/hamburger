@@ -25,9 +25,9 @@ class AttentionMerger(nn.Module):
         self.emb_dtype = emb_dtype
         
         emb_plus_pe_size = self.emb_size + self.emb_size // 2
-        self.q_proj = nn.Linear(self.emb_size, self.emb_size, bias=False, dtype=self.emb_dtype)
-        self.k_proj = nn.Linear(emb_plus_pe_size, self.emb_size, bias=False, dtype=self.emb_dtype)
-        self.v_proj = nn.Linear(emb_plus_pe_size, self.emb_size, bias=False, dtype=self.emb_dtype)
+        self.q_proj = nn.Linear(self.emb_size, self.emb_size, dtype=self.emb_dtype)
+        self.k_proj = nn.Linear(emb_plus_pe_size, self.emb_size, dtype=self.emb_dtype)
+        self.v_proj = nn.Linear(emb_plus_pe_size, self.emb_size, dtype=self.emb_dtype)
         self.scale = self.head_size ** 0.5
         self.pos = nn.Parameter(
             torch.zeros(self.max_steps, self.emb_size // 2, dtype=self.emb_dtype), 
@@ -177,12 +177,11 @@ class ConditionalMicroStepDecoder(nn.Module):
         hidden_size = config.hidden_size
         model_dtype = config.torch_dtype
         self.stop_head = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size, dtype=model_dtype), 
             nn.SiLU(), 
-            nn.Linear(hidden_size, hidden_size, bias=False, dtype=model_dtype), 
+            nn.Linear(hidden_size, hidden_size, dtype=model_dtype), 
             nn.SiLU(), 
-            nn.Linear(hidden_size, hidden_size, bias=False, dtype=model_dtype), 
-            nn.SiLU(), 
-            nn.Linear(hidden_size, 1, bias=False, dtype=model_dtype), 
+            nn.Linear(hidden_size, 1, dtype=model_dtype), 
         )
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.feature_layer_indices = [3, 7, 11, 15]
