@@ -601,20 +601,12 @@ class M2DLlama(L.LightningModule):
             ], lr=1e-4
         )
 
-        total_steps = self.trainer.estimated_stepping_batches
-        warmup_steps = int(0.0 * total_steps)
-        stable_steps = int(0.7 * total_steps)
-        decay_steps = total_steps - warmup_steps - stable_steps
-
-        def lr_lambda_wsd(step):
-            if step < warmup_steps:
-                return step / warmup_steps
-            elif step < (warmup_steps + stable_steps):
-                return 1.0
-            else:
-                return (total_steps - step) / decay_steps
-        
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda_wsd)
+        total_steps = self.trainer.estimated_stepping_batches        
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer=optimizer, 
+            T_max=total_steps, 
+            eta_min=1e-6
+        )
 
         return {
             "optimizer": optimizer, 
