@@ -83,7 +83,6 @@ class CompositionalEmbedder(nn.Module):
         self.out_proj = nn.Linear(
             self.emb_size, 
             self.emb_size, 
-            bias=False, 
             dtype=self.emb_dtype
         )
 

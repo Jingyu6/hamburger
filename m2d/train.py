@@ -38,7 +38,7 @@ checkpoint_callback = ModelCheckpoint(
     save_top_k=1,
     monitor="step",
     mode="max",
-    every_n_train_steps=1024, 
+    every_n_train_steps=2048, 
     dirpath="/data/data_persistent1/jingyu/m2d/ckpts",
     filename="m2d-llama" + f"-{config.run_name}-" + "{step}",
 )
