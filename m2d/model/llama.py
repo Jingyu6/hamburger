@@ -605,7 +605,7 @@ class M2DLlama(L.LightningModule):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer=optimizer, 
             T_max=total_steps, 
-            eta_min=1e-6
+            eta_min=1e-5
         )
 
         return {
