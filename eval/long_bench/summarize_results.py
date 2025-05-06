@@ -12,6 +12,9 @@ for exp_name in os.listdir(result_dir):
     with open(result_file, 'r') as f:
         result = json.load(f)
 
+    # sort task namex
+    result = {k: result[k] for k in sorted(result.keys())}
+
     if print_dataset_name:
         print(",".join([f"{dn}" for dn in result]))
         print_dataset_name = False
