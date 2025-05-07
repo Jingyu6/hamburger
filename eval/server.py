@@ -7,6 +7,7 @@
 """
 
 import argparse
+from typing import Optional
 
 import litserve as ls
 import torch
@@ -22,11 +23,13 @@ class ModelLitAPI(ls.LitAPI):
         model_name: str, 
         model_type: str, 
         device: str, 
+        confidence: Optional[float], 
         **kwargs
     ):
         self.model_name = model_name
         self.model_type = model_type
         self.device = device
+        self.confidence = confidence
         
     def setup(self, device):
         if self.model_type == "hf":
@@ -63,7 +66,7 @@ class ModelLitAPI(ls.LitAPI):
                 max_new_tokens=max_gen_len
             )[0]["generated_text"][-1]["content"] # in case of multi-turn
         elif self.model_type == "m2d":
-            gen_config = GenConfig()
+            gen_config = GenConfig(micro_step_confidence=self.confidence)
             gen_config.max_gen_len = max_gen_len
             output = self.model.generate(
                 conversation=filtered_conversation, 
@@ -82,6 +85,7 @@ def parse_args(args=None):
     parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "m2d"])
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--confidence', type=float)
 
     args = parser.parse_args(args)
     return args
@@ -95,4 +99,4 @@ if __name__ == "__main__":
         devices=1, 
         spec=ls.OpenAISpec()
     )
-    server.run(port=8000)
+    server.run(port=args.port)
