@@ -42,7 +42,7 @@ class ModelLitAPI(ls.LitAPI):
             self.model = pipeline(task="text-generation", model=model, tokenizer=tokenizer)
         elif self.model_type == "m2d":
             self.model: M2DLlama = M2DLlama.load_from_checkpoint(self.model_name).to(self.device)
-        elif self.model_type == "blt":
+        else:
             raise NotImplemented
 
     def predict(self, conversation, context):
@@ -70,7 +70,7 @@ class ModelLitAPI(ls.LitAPI):
                 config=gen_config
             )["output"]
             self.model.report.get_speedup()
-        elif self.model_type == "blt":
+        else:
             raise NotImplemented
         
         yield output
@@ -79,7 +79,7 @@ class ModelLitAPI(ls.LitAPI):
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
-    parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "m2d", "blt"])
+    parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "m2d"])
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--device', type=str, default='cuda')
 

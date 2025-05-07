@@ -10,9 +10,6 @@ case "$1" in
             --model_name /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-skip-finish.ckpt \
             --model_type m2d
         ;;
-    "blt")
-        echo ok
-        ;;
     *)
         echo Invalid choice of model type. 
         exit 1
