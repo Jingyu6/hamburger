@@ -1,3 +1,0 @@
-group: scrolls
-task: scrolls_govreport_llama_32k
-class: !function task.GovReportLlama32k

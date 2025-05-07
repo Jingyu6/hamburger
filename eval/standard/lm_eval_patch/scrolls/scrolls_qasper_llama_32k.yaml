@@ -1,3 +1,0 @@
-group: scrolls
-task: scrolls_qasper_llama_32k
-class: !function task.QasperLlama32K

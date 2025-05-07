@@ -1,3 +1,0 @@
-group: scrolls
-task: scrolls_quality_llama_32k
-class: !function task.QuALITYLlama32k
