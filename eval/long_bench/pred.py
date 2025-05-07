@@ -19,6 +19,8 @@ def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
     parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "m2d"])
+    parser.add_argument('--confidence', type=float)
+
     parser.add_argument('--exp', type=str, default=None, help="Experiment name. ")
     parser.add_argument('--e', action='store_true', help="Evaluate on LongBench-E. ")
     parser.add_argument('--no-8k', action='store_true', help="Exclude >8k samples. ")
@@ -45,7 +47,8 @@ def get_predictions(
     prompt_format, 
     dataset_name, 
     output_path, 
-    no_8k
+    no_8k, 
+    confidence
 ):
     print(f"Evaluating {dataset_name} with {len(data)} samples...")
 
@@ -63,8 +66,11 @@ def get_predictions(
         elif model_type == "m2d":
             outputs = model.generate(
                 prompt=prompt, 
-                config=GenConfig(max_gen_len=max_gen)
-            )    
+                config=GenConfig(
+                    max_gen_len=max_gen, 
+                    micro_step_confidence=confidence
+                )
+            )
             pred = outputs["output"]
         else:
             raise ValueError
@@ -153,5 +159,11 @@ if __name__ == "__main__":
             prompt_format=prompt_format, 
             dataset_name=dataset_name, 
             output_path=output_path, 
-            no_8k=args.no_8k
+            no_8k=args.no_8k, 
+            confidence=args.confidence
         )
+
+        if args.model_type == "m2d":
+            assert isinstance(model, M2DLlama)
+            model.report.get_speedup()
+            model.report.reset()
