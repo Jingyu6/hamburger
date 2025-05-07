@@ -61,7 +61,7 @@ class ModelLitAPI(ls.LitAPI):
             output = self.model(
                 filtered_conversation, 
                 max_new_tokens=max_gen_len
-            )[0]["generated_text"][1]["content"]
+            )[0]["generated_text"][-1]["content"] # in case of multi-turn
         elif self.model_type == "m2d":
             gen_config = GenConfig()
             gen_config.max_gen_len = max_gen_len
