@@ -16,9 +16,8 @@ import torch.nn.functional as F
 from tokenizer import get_tokenizer
 
 try:
-    from GPTQ import GenericGPTQRunner, InputRecorder
-
-    from eval import evaluate, get_task_dict, lm_eval
+    from .eval import evaluate, get_task_dict, lm_eval
+    from .gptq import GenericGPTQRunner, InputRecorder
 except:
     pass
 
@@ -172,10 +171,10 @@ class QuantHandler:
     def __init__(self, mod):
         self.mod = mod
 
-    def create_quantized_state_dict(self) -> "StateDict":
+    def create_quantized_state_dict(self):
         pass
 
-    def convert_for_runtime(self) -> "nn.Module":
+    def convert_for_runtime(self) -> nn.Module:
         pass
 
 
@@ -250,7 +249,7 @@ class GPTQQuantHandler(QuantHandler):
         assert self.make_names_and_values_dict_func is not None
 
     @staticmethod
-    def get_inputs(model, tokenizer, calibration_tasks, calibration_limit, calibration_seq_length, pad_calibration_inputs) -> "MultiInput":
+    def get_inputs(model, tokenizer, calibration_tasks, calibration_limit, calibration_seq_length, pad_calibration_inputs):
         input_recorder = InputRecorder(
             model,
             tokenizer,
@@ -290,7 +289,7 @@ class GPTQQuantHandler(QuantHandler):
         calibration_limit,
         calibration_seq_length,
         pad_calibration_inputs,
-    ) -> "StateDict":
+    ):
         inputs = GPTQQuantHandler.get_inputs(self.mod, tokenizer, calibration_tasks, calibration_limit, calibration_seq_length, pad_calibration_inputs)
         print("Tracing model for GPTQ")
         GPTQ_runner = GenericGPTQRunner(
