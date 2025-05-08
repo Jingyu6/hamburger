@@ -42,7 +42,7 @@ create_block_mask = torch.compile(create_block_mask)
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from model import Transformer
+from model import HAMburger, Transformer
 from tokenizer import get_tokenizer
 
 
@@ -247,10 +247,17 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
     return torch.tensor(tokens, dtype=torch.int, device=device)
 
 
-def _load_model(checkpoint_path, device, precision, use_tp):
+def _load_model(checkpoint_path, device, precision, use_tp, is_hamburger=False):
     use_cuda = 'cuda' in device
     with torch.device('meta'):
         model = Transformer.from_name(checkpoint_path.parent.name)
+
+    # do patching for hambuger model
+    if is_hamburger:
+        model = HAMburger.from_transformer(model)
+
+    print(model.state_dict().keys())
+    exit()
 
     if "int8" in str(checkpoint_path):
         print("Using int8 weight-only quantization!")
@@ -317,7 +324,8 @@ def main(
     compile_prefill: bool = False,
     profile: Optional[Path] = None,
     draft_checkpoint_path: Optional[Path] = None,
-    speculate_k: int = 5,
+    speculate_k: int = 5, 
+    is_hamburger: bool = False, 
     device=default_device,
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
@@ -341,9 +349,17 @@ def main(
     is_speculative = draft_checkpoint_path is not None
     is_chat = "chat" in str(checkpoint_path) or "inst" in str(checkpoint_path).lower()
 
+    # some hamburger related check
+    if is_hamburger: 
+        is_chat = True
+        assert draft_checkpoint_path is None, "Currently hamburger doesn't support spec decoding"
+        assert batch_size == 1, "Currently hamburger doesn't support batch size > 1"
+        assert not use_tp, "Currently hambuger doesn't support TP"
+        assert not compile, "Currently hambuger doesn't support compile"
+
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, device, precision, use_tp)
+    model = _load_model(checkpoint_path, device, precision, use_tp, is_hamburger)
 
     if is_speculative:
         draft_model = _load_model(draft_checkpoint_path, device, precision, use_tp)
@@ -500,9 +516,12 @@ if __name__ == '__main__':
     parser.add_argument('--draft_checkpoint_path', type=Path, default=None, help='Draft checkpoint path.')
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
 
+    # hamburger specific arguments
+    parser.add_argument('--is_hamburger', action='store_true', help="Is the model type HAMburger")
+
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.batch_size, args.top_k,
         args.temperature, args.checkpoint_path, args.compile, args.compile_prefill, args.profile, args.draft_checkpoint_path,
-        args.speculate_k, args.device
+        args.speculate_k, args.is_hamburger, args.device
     )

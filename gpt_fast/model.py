@@ -95,6 +95,10 @@ transformer_configs = {
     ),
     "Llama-3.2-1B-Instruct": dict(block_size=131072, n_layer=16, n_head=32, n_local_heads=8, dim=2048, intermediate_size=8192, vocab_size=128256, rope_base=500000,
         rope_scaling=dict(factor=32.0, low_freq_factor=1.0, high_freq_factor=4.0, original_max_position_embeddings=8192)
+    ), 
+    # the same as Llama-3.2-1B-Instruct
+    "hamburger": dict(block_size=131072, n_layer=16, n_head=32, n_local_heads=8, dim=2048, intermediate_size=8192, vocab_size=128256, rope_base=500000,
+        rope_scaling=dict(factor=32.0, low_freq_factor=1.0, high_freq_factor=4.0, original_max_position_embeddings=8192)
     )
 }
 
@@ -167,6 +171,158 @@ class Transformer(nn.Module):
     @classmethod
     def from_name(cls, name: str):
         return cls(ModelArgs.from_name(name))
+
+
+class _AttentionMerger(nn.Module):
+    def __init__(
+        self, 
+        emb_size: int, 
+        num_heads: int, 
+        max_steps: int, 
+        emb_dtype: torch.dtype
+    ):
+        super().__init__()
+        self.emb_size = emb_size
+        self.num_heads = num_heads
+        self.head_size = self.emb_size // self.num_heads
+        self.max_steps = max_steps
+        self.emb_dtype = emb_dtype
+        
+        emb_plus_pe_size = self.emb_size + self.emb_size // 2
+        self.q_proj = nn.Linear(self.emb_size, self.emb_size, dtype=self.emb_dtype)
+        self.k_proj = nn.Linear(emb_plus_pe_size, self.emb_size, dtype=self.emb_dtype)
+        self.v_proj = nn.Linear(emb_plus_pe_size, self.emb_size, dtype=self.emb_dtype)
+        self.scale = self.head_size ** 0.5
+        self.pos = nn.Parameter(
+            torch.zeros(self.max_steps, self.emb_size // 2, dtype=self.emb_dtype), 
+            requires_grad=True
+        )
+        nn.init.xavier_normal_(self.pos)
+
+    def forward(self, embeddings: torch.Tensor):
+        # embeddings [S, D]
+        emb_len = embeddings.shape[0]
+        # QKV
+        hidden_shape = (-1, self.num_heads, self.head_size)
+        q = self.q_proj.forward(embeddings.mean(dim=0, keepdim=True)).view(hidden_shape)
+        # add positional information
+        embeddings = torch.concat([embeddings, self.pos[:emb_len]], dim=-1)
+        k = self.k_proj.forward(embeddings).view(hidden_shape)
+        v = self.v_proj.forward(embeddings).view(hidden_shape)
+        # cross attention with mean
+        q = q.permute(1, 0, 2) # [H, 1, D]
+        k = k.permute(1, 2, 0) # [H, D, S]
+        v = v.permute(1, 0, 2) # [H, S, D]
+        scores = torch.bmm(q, k) / self.scale # [H, 1, S]
+        attention = F.softmax(scores, dim=-1) # [H, 1, S]
+        output = torch.bmm(attention, v) # [H, 1, D]
+
+        # [H, 1, D] -> [1, H, D] -> [1, H * D]
+        return output.permute(1, 0, 2).view(-1, self.emb_size).contiguous()
+
+
+class _CompositionalEmbedder(nn.Module):
+    """
+        A simple average composition for now
+    """
+    def __init__(
+        self, 
+        embedding: nn.Embedding, 
+        max_steps: int
+    ):
+        super().__init__()
+        self.embedding = embedding
+        self.max_steps = max_steps
+        self.emb_size = embedding.weight.shape[-1]
+        self.emb_dtype = self.embedding.weight.dtype
+
+        self.merger = _AttentionMerger(
+            emb_size=self.emb_size, 
+            num_heads=64, # same as llama 
+            max_steps=self.max_steps, 
+            emb_dtype=self.emb_dtype
+        )
+
+        self.out_proj = nn.Linear(
+            self.emb_size, 
+            self.emb_size, 
+            dtype=self.emb_dtype
+        )
+
+    def _merge_fn(self, embeddings: torch.Tensor):
+        emb_len = embeddings.shape[0]
+        if emb_len == 1:
+            # we dont do merging
+            return embeddings
+        merge_emb = self.merger.forward(embeddings)
+        merge_emb = self.out_proj.forward(merge_emb)
+
+        return embeddings.mean(dim=0, keepdim=True) + merge_emb
+
+    def forward(
+        self,
+        input_ids: torch.Tensor, 
+        disable_merge: bool
+    ):
+        embeddings = self.embedding.forward(input_ids)
+        if not disable_merge:
+            embeddings = self._merge_fn(embeddings)
+        return embeddings
+
+
+class _ConditionalMicroStepDecoder(nn.Module):
+    def __init__(
+        self, 
+        config: ModelArgs, 
+        max_steps: int
+    ):
+        """
+            Currently we're just using a single transformer decoder layer
+        """
+        super().__init__()
+        self.max_steps = max_steps
+        assert self.max_steps >= 1
+        # decoder
+        self.num_layers = 4
+        self.decoders = nn.ModuleList([
+            TransformerBlock(config)
+            for _ in range(self.num_layers)])
+        # stop prediction
+        hidden_size = config.dim
+        self.stop_head = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size), 
+            nn.SiLU(), 
+            nn.Linear(hidden_size, hidden_size), 
+            nn.SiLU(), 
+            nn.Linear(hidden_size, 1), 
+        )
+        self.feature_layer_indices = [3, 7, 11, 15]
+
+
+class HAMburger(nn.Module):
+    def __init__(self, model: Transformer):
+        super().__init__()
+        self.model = model
+        # extra module here
+        self.max_steps = 4 # TODO: hard coded for now
+        self.comp_embedder = _CompositionalEmbedder(
+            embedding=self.model.tok_embeddings, 
+            max_steps=self.max_steps
+        )
+        self.micro_step_decoder = _ConditionalMicroStepDecoder(
+            config=self.model.config, 
+            max_steps=self.max_steps
+        )
+
+    @classmethod
+    def from_transformer(cls, model: Transformer) -> "HAMburger":
+        return cls(model)
+
+    def setup_caches(self, max_batch_size, max_seq_length):
+        raise NotImplemented
+    
+    def forward(self, mask: BlockMask, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
+        raise NotImplemented
 
 
 class TransformerBlock(nn.Module):
