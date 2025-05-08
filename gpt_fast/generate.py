@@ -50,6 +50,7 @@ def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling with
     q = torch.empty_like(probs_sort).exponential_(1)
     return torch.argmax(probs_sort / q, dim=-1, keepdim=True).to(dtype=torch.int)
 
+
 def logits_to_probs(logits, temperature: float = 1.0, top_k: Optional[int] = None):
     logits = logits / max(temperature, 1e-5)
 
@@ -60,22 +61,27 @@ def logits_to_probs(logits, temperature: float = 1.0, top_k: Optional[int] = Non
     probs = torch.nn.functional.softmax(logits, dim=-1)
     return probs
 
+
 def sample(logits, temperature: float = 1.0, top_k: Optional[int] = None):
     probs = logits_to_probs(logits[:, -1], temperature, top_k)
     idx_next = multinomial_sample_one_no_sync(probs)
     return idx_next, probs
 
+
 def roundup(val, multiplier):
     return ((val - 1) // multiplier + 1) * multiplier
 
+
 def causal_mask(b, h, q, kv):
     return q >= kv
+
 
 def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> torch.Tensor:
     # input_pos: [B, S]
     mask = create_block_mask(causal_mask, 1, 1, input_pos.shape[0], model.max_seq_length, device=x.device)
     logits = model(mask, x, input_pos)
     return sample(logits, **sampling_kwargs)[0]
+
 
 def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, block_mask: BlockMask, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
     # input_pos: [B, 1]
@@ -86,6 +92,7 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
     mask.seq_lengths = (1, model.max_seq_length)
     logits = model(mask, x, input_pos)
     return sample(logits, **sampling_kwargs)
+
 
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     block_mask = create_block_mask(causal_mask, 1, 1, model.max_seq_length, model.max_seq_length, device=cur_token.device)
@@ -105,6 +112,7 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
 
 def model_forward(model, x, input_pos):
     return model(x, input_pos)
+
 
 def speculative_decode(
     model: Transformer,
@@ -155,6 +163,7 @@ def speculative_decode(
         new = new / new.sum()
         next_token = multinomial_sample_one_no_sync(new)
         return torch.cat([draft_tokens[:accept_length], next_token])
+
 
 @torch.no_grad()
 def generate(
@@ -230,11 +239,13 @@ def generate(
     }
     return seq, generate_stats
 
+
 def encode_tokens(tokenizer, string, bos=True, device=default_device):
     tokens = tokenizer.encode(string)
     if bos:
         tokens = [tokenizer.bos_id()] + tokens
     return torch.tensor(tokens, dtype=torch.int, device=device)
+
 
 def _load_model(checkpoint_path, device, precision, use_tp):
     use_cuda = 'cuda' in device
@@ -268,6 +279,7 @@ def _load_model(checkpoint_path, device, precision, use_tp):
     model = model.to(device=device, dtype=precision)
     return model.eval()
 
+
 def _get_model_size(model):
     model_size = 0
     params = 0
@@ -287,7 +299,10 @@ def _get_model_size(model):
             )
     return model_size, params
 
+
+# TODO: Fix this part latter to apply the right chat template
 B_INST, E_INST = "[INST]", "[/INST]"
+
 
 def main(
     prompt: Union[int, str] = "Hello, my name is",
@@ -324,7 +339,7 @@ def main(
     print(f"Using device={device}")
     precision = torch.bfloat16
     is_speculative = draft_checkpoint_path is not None
-    is_chat = "chat" in str(checkpoint_path)
+    is_chat = "chat" in str(checkpoint_path) or "inst" in str(checkpoint_path).lower()
 
     print("Loading model ...")
     t0 = time.time()
@@ -387,7 +402,10 @@ def main(
                 nonlocal done_generating
                 if done_generating:
                     return
-                buffer.append(tokenizer.decode([period_id] + x.tolist())[1:])
+                
+                assert x.numel() == 1, "Original code doesn't work with bs > 1 in interactive"
+                buffer.append(tokenizer.decode([period_id, x.item()])[1:])
+                
                 if x.item() == tokenizer.eos_id():
                     done_generating = True
                 if len(buffer) == 4 or done_generating:

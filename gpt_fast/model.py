@@ -98,6 +98,7 @@ transformer_configs = {
     )
 }
 
+
 class KVCache(nn.Module):
     def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, dtype=torch.bfloat16):
         super().__init__()
@@ -115,6 +116,7 @@ class KVCache(nn.Module):
         v_out[:, :, input_pos] = v_val
 
         return k_out, v_out
+
 
 class Transformer(nn.Module):
     def __init__(self, config: ModelArgs) -> None:
