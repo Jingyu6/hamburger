@@ -1,6 +1,5 @@
 import os
 import re
-import shutil
 import sys
 from pathlib import Path
 
@@ -129,18 +128,6 @@ def convert_hamburger_checkpoint(
 
     print(f"Saving checkpoint to {save_checkpoint_path / 'model.pth'}")
     torch.save(final_result, save_checkpoint_path / "model.pth")
-
-    # Saving tokenizers
-    print(f"Downloading tokenizer to {save_checkpoint_path / 'tokenizer.model'}")
-    tokenizer_path = hf_hub_download(
-        repo_id="meta-llama/Llama-3.2-1B-Instruct", 
-        filename="original/tokenizer.model", 
-        local_dir=save_checkpoint_path, 
-    )
-
-    shutil.move(tokenizer_path, save_checkpoint_path)
-    shutil.rmtree(save_checkpoint_path / ".cache")
-    shutil.rmtree(save_checkpoint_path / "original")
 
 
 if __name__ == '__main__':
