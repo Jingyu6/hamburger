@@ -9,6 +9,7 @@ from typing import Dict
 import sentencepiece as spm
 import tiktoken
 from tiktoken.load import load_tiktoken_bpe
+from transformers import AutoTokenizer
 
 
 class TokenizerInterface:
@@ -112,7 +113,9 @@ def get_tokenizer(tokenizer_model_path, model_name, is_hamburger=False):
     - TokenizerInterface: An instance of a tokenizer.
     """
 
-    if "llama-3" in str(model_name).lower() or is_hamburger:
+    if "llama-3.2" in str(model_name).lower() or is_hamburger:
+        return AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
+    elif "llama-3" in str(model_name).lower():
         return TiktokenWrapper(tokenizer_model_path)
     else:
         return SentencePieceWrapper(tokenizer_model_path)

@@ -17,6 +17,7 @@ import torch
 import torch._dynamo.config
 import torch._inductor.config
 from torch.nn.attention.flex_attention import BlockMask, create_block_mask
+from transformers import AutoTokenizer
 
 
 def device_sync(device):
@@ -207,6 +208,7 @@ def generate(
     with torch.device(device):
         model.setup_caches(max_batch_size=batch_size, max_seq_length=max_seq_length)
         if is_speculative and draft_model is not model:
+            assert not is_hamburger, "HAMburger does not support spec decoding"
             draft_model.setup_caches(max_batch_size=batch_size, max_seq_length=max_seq_length)
 
     # create an empty tensor of the expected final shape and fill in the current tokens
@@ -217,15 +219,27 @@ def generate(
     seq = empty
     input_pos = torch.arange(0, T, device=device)
 
+    # From now on, we might output more than one token per step for HAMburger
     next_token = prefill(model, prompt.view(batch_size, -1), input_pos, is_hamburger, **sampling_kwargs).clone()
     if is_speculative:
+        assert not is_hamburger, "HAMburger does not support spec decoding"
         prefill(draft_model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs)
-    seq[:, T] = next_token.squeeze()
+    
+    if is_hamburger:
+        output_len = len(next_token)
+        prefill_end = min(T + output_len, max_seq_length)
+        seq[:, T:prefill_end] = next_token[:prefill_end - T]
+        seq = seq[:, :prefill_end]
+    else:
+        seq[:, T] = next_token.squeeze()
+
+    return seq, {"accept_counts": None}
 
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
     accept_counts = [0] * (speculate_k + 1)
 
     if is_speculative:
+        assert not is_hamburger, "HAMburger does not support spec decoding"
         input_pos = input_pos.item()  # for speculative decoding easier to keep on host
         while input_pos < T_new - 1:
             cur_token = next_token.view(())
@@ -251,11 +265,19 @@ def generate(
     return seq, generate_stats
 
 
-def encode_tokens(tokenizer, string, bos=True, device=default_device):
-    tokens = tokenizer.encode(string)
-    if bos:
-        tokens = [tokenizer.bos_id()] + tokens
-    return torch.tensor(tokens, dtype=torch.int, device=device)
+def encode_tokens(tokenizer, string, bos=True, device=default_device): 
+    if hasattr(tokenizer, "apply_chat_template"):
+        return tokenizer.apply_chat_template(
+            [{"role": "user", "content": string}], 
+            add_generation_prompt=True, 
+            return_tensors='pt', 
+            return_dict=True
+        )["input_ids"][0].to(device)
+    else:
+        tokens = tokenizer.encode(string)
+        if bos:
+            tokens = [tokenizer.bos_id()] + tokens
+        return torch.tensor(tokens, dtype=torch.int, device=device)
 
 
 def _load_model(checkpoint_path, device, precision, use_tp, is_hamburger=False):
@@ -356,7 +378,6 @@ def main(
     print(f"Using device={device}")
     precision = torch.bfloat16
     is_speculative = draft_checkpoint_path is not None
-    is_chat = "chat" in str(checkpoint_path) or "inst" in str(checkpoint_path).lower()
 
     # some hamburger related check
     if is_hamburger: 
@@ -415,8 +436,6 @@ def main(
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
-            if is_chat:
-                prompt = f"{B_INST} {prompt.strip()} {E_INST}"
             encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
 
         if interactive and i >= 0:

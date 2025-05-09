@@ -16,6 +16,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
 from torch.nn.attention.flex_attention import (BlockMask, _mask_mod_signature,
+                                               create_block_mask,
                                                flex_attention)
 
 
@@ -325,8 +326,10 @@ class _ConditionalMicroStepDecoder(nn.Module):
         # kv cache related info
         self.freqs_cis: Optional[Tensor] = None
         self.mask_cache: Optional[Tensor] = None
+        self.max_seq_length = -1
         self.max_batch_size = -1
         self.get_mask_mod = get_mask_mod
+        self.mask = None
 
     def setup_caches(self, max_batch_size, config, dtype):
         # no more check for seq_len since its fixed
@@ -335,12 +338,12 @@ class _ConditionalMicroStepDecoder(nn.Module):
 
         # setup cache for micro step decoder
         head_dim = config.dim // config.n_head
-        max_seq_length = find_multiple(self.max_steps + len(self.feature_layer_indices), 8)
+        self.max_seq_length = find_multiple(self.max_steps + len(self.feature_layer_indices), 8)
         self.max_batch_size = max_batch_size
         for b in self.decoders:
             b.attention.kv_cache = KVCache(
-                max_batch_size, 
-                max_seq_length, 
+                self.max_batch_size, 
+                self.max_seq_length, 
                 config.n_local_heads, 
                 head_dim, 
                 dtype
@@ -352,6 +355,11 @@ class _ConditionalMicroStepDecoder(nn.Module):
             config.rope_base, 
             dtype, 
             config.rope_scaling
+        )
+
+        self.mask = create_block_mask(
+            lambda b, h, q, kv: q >= kv, 
+            1, 1, self.max_seq_length, self.max_seq_length
         )
 
 
@@ -370,7 +378,9 @@ class HAMburger(nn.Module):
             config=self.model.config, 
             max_steps=self.max_steps
         )
+        self.micro_step_confidence = None
 
+        # gpt-fast related
         self.max_batch_size = -1
         self.max_seq_length = -1
 
@@ -418,10 +428,51 @@ class HAMburger(nn.Module):
             feature_layer_indices=self.micro_step_decoder.feature_layer_indices
         )
 
-        print(len(features), features[0].shape)
-        print(idx.shape)
-        print(input_pos.shape)
-        exit()
+        hiddens = torch.concat(features, dim=1)
+
+        output_ids = []
+        micro_input_pos = torch.arange(0, hiddens.shape[-2] + 1, device=hiddens.device)
+
+        for i in range(self.max_steps):
+            if i > 0:
+                # TODO: Look at how cache is done
+                self.micro_step_decoder.mask.mask_mod = \
+                    self.micro_step_decoder.get_mask_mod(
+                        self.micro_step_decoder.mask.mask_mod, micro_input_pos[0])
+                micro_freqs_cis = self.micro_step_decoder.freqs_cis[micro_input_pos]
+                for decoder in self.micro_step_decoder.decoders:
+                    hiddens = decoder(hiddens, micro_input_pos, micro_freqs_cis, self.micro_step_decoder.mask)
+            
+                micro_input_pos = torch.arange(
+                    micro_input_pos[-1] + 1, 
+                    micro_input_pos[-1] + 2, 
+                    device=hiddens.device
+                )
+
+            last_hidden = hiddens[:, -1:, :]
+            logits = self.model.output.forward(last_hidden)
+            # TODO: later try sampling
+            pred_token = logits.argmax(dim=-1).view(-1)
+            pred_stop = F.sigmoid(self.micro_step_decoder.stop_head.forward(last_hidden)).view(-1)
+
+            if i > 0:
+                hiddens = self.comp_embedder.embedding.forward(pred_token).view(1, 1, -1)
+            else:
+                hiddens = torch.concat([
+                    hiddens, 
+                    self.comp_embedder.embedding.forward(pred_token).view(1, 1, -1)
+                ], dim=1)
+
+            output_ids.append(pred_token)
+
+            if self.micro_step_confidence is not None:
+                # we stop if our continue confident is less than X
+                if (1.0 - pred_stop) < self.micro_step_confidence:
+                    break
+            elif pred_stop > 0.5:
+                break
+
+        return torch.concat(output_ids, dim=0)
 
 
 class TransformerBlock(nn.Module):
