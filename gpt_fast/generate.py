@@ -256,9 +256,6 @@ def _load_model(checkpoint_path, device, precision, use_tp, is_hamburger=False):
     if is_hamburger:
         model = HAMburger.from_transformer(model)
 
-    print(model.state_dict().keys())
-    exit()
-
     if "int8" in str(checkpoint_path):
         print("Using int8 weight-only quantization!")
         from quantize import WeightOnlyInt8QuantHandler
@@ -276,6 +273,7 @@ def _load_model(checkpoint_path, device, precision, use_tp, is_hamburger=False):
     checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
+
     model.load_state_dict(checkpoint, assign=True)
 
     if use_tp:
