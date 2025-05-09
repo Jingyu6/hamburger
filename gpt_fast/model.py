@@ -297,12 +297,45 @@ class _ConditionalMicroStepDecoder(nn.Module):
             nn.Linear(hidden_size, 1), 
         )
         self.feature_layer_indices = [3, 7, 11, 15]
+        
+        # kv cache related info
+        self.freqs_cis: Optional[Tensor] = None
+        self.mask_cache: Optional[Tensor] = None
+        self.max_batch_size = -1
+        self.get_mask_mod = get_mask_mod
+
+    def setup_caches(self, max_batch_size, config, dtype):
+        # no more check for seq_len since its fixed
+        if self.max_batch_size >= max_batch_size:
+            return
+
+        # setup cache for micro step decoder
+        head_dim = config.dim // config.n_head
+        max_seq_length = find_multiple(self.max_steps + len(self.feature_layer_indices), 8)
+        self.max_batch_size = max_batch_size
+        for b in self.decoders:
+            b.attention.kv_cache = KVCache(
+                max_batch_size, 
+                max_seq_length, 
+                config.n_local_heads, 
+                head_dim, 
+                dtype
+            )
+
+        self.freqs_cis = precompute_freqs_cis(
+            config.block_size, 
+            config.dim // config.n_head, 
+            config.rope_base, 
+            dtype, 
+            config.rope_scaling
+        )
 
 
 class HAMburger(nn.Module):
     def __init__(self, model: Transformer):
         super().__init__()
         self.model = model
+        self.config = self.model.config
         # extra module here
         self.max_steps = 4 # TODO: hard coded for now
         self.comp_embedder = _CompositionalEmbedder(
@@ -319,7 +352,16 @@ class HAMburger(nn.Module):
         return cls(model)
 
     def setup_caches(self, max_batch_size, max_seq_length):
-        raise NotImplemented
+        dtype = self.model.output.weight.dtype
+        # For quantized layers, dtype is encoded in scales
+        if hasattr(self.model.output, "scales"):
+            dtype = self.model.output.scales.dtype
+        elif hasattr(self.model.output, "scales_and_zeros"):
+            dtype = self.model.output.scales_and_zeros.dtype
+        
+        # base model setup
+        self.model.setup_caches(max_batch_size, max_seq_length)
+        self.micro_step_decoder.setup_caches(max_batch_size, self.config, dtype)
     
     def forward(self, mask: BlockMask, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
         raise NotImplemented

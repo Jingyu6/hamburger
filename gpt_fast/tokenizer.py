@@ -100,7 +100,7 @@ class TiktokenWrapper(TokenizerInterface):
     def eos_id(self):
         return self._eos_id
 
-def get_tokenizer(tokenizer_model_path, model_name):
+def get_tokenizer(tokenizer_model_path, model_name, is_hamburger=False):
     """
     Factory function to get the appropriate tokenizer based on the model name.
     
@@ -112,7 +112,7 @@ def get_tokenizer(tokenizer_model_path, model_name):
     - TokenizerInterface: An instance of a tokenizer.
     """
 
-    if "llama-3" in str(model_name).lower():
+    if "llama-3" in str(model_name).lower() or is_hamburger:
         return TiktokenWrapper(tokenizer_model_path)
     else:
         return SentencePieceWrapper(tokenizer_model_path)

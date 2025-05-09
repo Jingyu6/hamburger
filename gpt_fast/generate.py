@@ -167,7 +167,7 @@ def speculative_decode(
 
 @torch.no_grad()
 def generate(
-    model: Transformer,
+    model: Transformer | HAMburger,
     prompt: torch.Tensor,
     max_new_tokens: int,
     batch_size: int,
@@ -367,7 +367,7 @@ def main(
     device_sync(device=device) # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
 
-    tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
+    tokenizer = get_tokenizer(tokenizer_path, checkpoint_path, is_hamburger)
 
     if isinstance(prompt, str):
         encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
