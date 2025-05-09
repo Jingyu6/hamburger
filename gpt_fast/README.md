@@ -3,6 +3,10 @@ python generate.py \
 --checkpoint_path checkpoints/hamburger/model.pth \
 --is_hamburger \
 --prompt "Hello, my name is"
+
+python generate.py \
+--checkpoint_path checkpoints/meta-llama/Llama-3.2-1B-Instruct/model.pth \
+--prompt "Hello, my name is"
 ```
 
 ```bash

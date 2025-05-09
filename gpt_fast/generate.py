@@ -76,11 +76,21 @@ def causal_mask(b, h, q, kv):
     return q >= kv
 
 
-def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> torch.Tensor:
+def prefill(
+    model: Transformer | HAMburger, 
+    x: torch.Tensor, 
+    input_pos: torch.Tensor, 
+    is_hamburger: bool = False, 
+    **sampling_kwargs
+) -> torch.Tensor:
     # input_pos: [B, S]
     mask = create_block_mask(causal_mask, 1, 1, input_pos.shape[0], model.max_seq_length, device=x.device)
-    logits = model(mask, x, input_pos)
-    return sample(logits, **sampling_kwargs)[0]
+    if is_hamburger:
+        # we need to sample ourselves
+        return model(mask, x, input_pos, is_prefill=True)
+    else:
+        logits = model(mask, x, input_pos)
+        return sample(logits, **sampling_kwargs)[0]
 
 
 def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, block_mask: BlockMask, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -175,7 +185,8 @@ def generate(
     interactive: bool,
     draft_model: Transformer,
     speculate_k: Optional[int] = 8,
-    callback = lambda x: x,
+    callback = lambda x: x, 
+    is_hamburger: bool = False, 
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -206,7 +217,7 @@ def generate(
     seq = empty
     input_pos = torch.arange(0, T, device=device)
 
-    next_token = prefill(model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs).clone()
+    next_token = prefill(model, prompt.view(batch_size, -1), input_pos, is_hamburger, **sampling_kwargs).clone()
     if is_speculative:
         prefill(draft_model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs)
     seq[:, T] = next_token.squeeze()
@@ -445,6 +456,7 @@ def main(
                 speculate_k=speculate_k,
                 interactive=interactive,
                 callback=callback,
+                is_hamburger=is_hamburger, 
                 temperature=temperature,
                 top_k=top_k,
             )

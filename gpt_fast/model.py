@@ -9,7 +9,7 @@
 # LICENSE file in the root directory of this source tree.
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -156,15 +156,38 @@ class Transformer(nn.Module):
 
         self.freqs_cis = precompute_freqs_cis(self.config.block_size, self.config.dim // self.config.n_head, self.config.rope_base, dtype, self.config.rope_scaling)
 
-    def forward(self, mask: BlockMask, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
+    def forward(
+        self, 
+        mask: BlockMask, 
+        idx: Tensor, 
+        input_pos: Optional[Tensor] = None, 
+        skip_embedding: bool = False, 
+        feature_layer_indices: List[int] = [] # for hamburger
+    ) -> Tensor | List[Tensor]:
         assert self.freqs_cis is not None, "Caches must be initialized first"
         mask.mask_mod = self.get_mask_mod(mask.mask_mod, input_pos[0])
         freqs_cis = self.freqs_cis[input_pos]
-        x = self.tok_embeddings(idx)
+        if skip_embedding:
+            x = idx
+        else:
+            x = self.tok_embeddings(idx)
+
+        return_features = len(feature_layer_indices) > 0
+        if return_features:
+            features = []
 
         for i, layer in enumerate(self.layers):
             x = layer(x, input_pos, freqs_cis, mask)
+            # we store the last one after norm
+            if i in feature_layer_indices and i != len(self.layers) - 1:
+                features.append(x[:, -1:, :])
         x = self.norm(x)
+        
+        if len(self.layers) - 1 in feature_layer_indices:
+            features.append(x[:, -1:, :])
+        if return_features:
+            return features
+        
         logits = self.output(x)
         return logits
 
@@ -262,11 +285,12 @@ class _CompositionalEmbedder(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor, 
-        disable_merge: bool
+        is_prefill: bool
     ):
         embeddings = self.embedding.forward(input_ids)
-        if not disable_merge:
-            embeddings = self._merge_fn(embeddings)
+        if not is_prefill:
+            # TODO: later change it to have bs > 1
+            embeddings = self._merge_fn(embeddings[0])[None, ]
         return embeddings
 
 
@@ -347,6 +371,9 @@ class HAMburger(nn.Module):
             max_steps=self.max_steps
         )
 
+        self.max_batch_size = -1
+        self.max_seq_length = -1
+
     @classmethod
     def from_transformer(cls, model: Transformer) -> "HAMburger":
         return cls(model)
@@ -362,9 +389,39 @@ class HAMburger(nn.Module):
         # base model setup
         self.model.setup_caches(max_batch_size, max_seq_length)
         self.micro_step_decoder.setup_caches(max_batch_size, self.config, dtype)
-    
-    def forward(self, mask: BlockMask, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
-        raise NotImplemented
+
+        self.max_batch_size = max(self.max_batch_size, self.model.max_batch_size)
+        self.max_seq_length = max(self.max_seq_length, self.model.max_seq_length)
+
+    def forward(
+        self, 
+        mask: BlockMask, 
+        idx: Tensor, 
+        input_pos: Optional[Tensor] = None, 
+        is_prefill: bool = False
+    ) -> Tensor:
+        """
+            Input shapes:
+                idx: [bs, seqlen]
+                input_pos: [seqlen]
+        """
+
+        # Compositional embedder [bs, l, d]
+        x = self.comp_embedder.forward(idx, is_prefill)
+
+        # Base models list of [bs, 1, d] since we just want the last one
+        features = self.model.forward(
+            mask=mask, 
+            idx=x, 
+            input_pos=input_pos, 
+            skip_embedding=True, 
+            feature_layer_indices=self.micro_step_decoder.feature_layer_indices
+        )
+
+        print(len(features), features[0].shape)
+        print(idx.shape)
+        print(input_pos.shape)
+        exit()
 
 
 class TransformerBlock(nn.Module):
