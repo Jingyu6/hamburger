@@ -326,6 +326,7 @@ class _ConditionalMicroStepDecoder(nn.Module):
             nn.Linear(hidden_size, 1), 
         )
         self.feature_layer_indices = [3, 7, 11, 15]
+        self.num_features = len(self.feature_layer_indices)
         
         # kv cache related info
         self.freqs_cis: Optional[Tensor] = None
@@ -342,7 +343,7 @@ class _ConditionalMicroStepDecoder(nn.Module):
 
         # setup cache for micro step decoder
         head_dim = config.dim // config.n_head
-        self.max_seq_length = find_multiple(self.max_steps + len(self.feature_layer_indices), 8)
+        self.max_seq_length = find_multiple(self.max_steps + self.num_features, 8)
         self.max_batch_size = max_batch_size
         for b in self.decoders:
             b.attention.kv_cache = KVCache(
@@ -370,7 +371,7 @@ class _ConditionalMicroStepDecoder(nn.Module):
         self.masks.append(_create_base_mask())
         for i in range(1, self.max_steps - 1):
             mask = _create_base_mask()
-            mask.mask_mod = self.get_mask_mod(mask.mask_mod, len(self.feature_layer_indices) + i)
+            mask.mask_mod = self.get_mask_mod(mask.mask_mod, self.num_features + i)
             self.masks.append(mask)
 
 
@@ -455,7 +456,10 @@ class HAMburger(nn.Module):
         hiddens = torch.concat(features, dim=1)
 
         output_ids = []
-        micro_input_pos = torch.arange(0, hiddens.shape[-2] + 1, device=hiddens.device)
+        micro_input_pos = torch.arange(
+            0, self.micro_step_decoder.num_features + 1, 
+            device=hiddens.device
+        )
 
         for i in range(self.max_steps):
             if i > 0:
@@ -469,8 +473,8 @@ class HAMburger(nn.Module):
                     )
             
                 micro_input_pos = torch.arange(
-                    micro_input_pos[-1] + 1, 
-                    micro_input_pos[-1] + 2, 
+                    self.micro_step_decoder.num_features + i, 
+                    self.micro_step_decoder.num_features + i + 1, 
                     device=hiddens.device
                 )
 
