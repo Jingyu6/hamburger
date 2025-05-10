@@ -510,8 +510,9 @@ class HAMburger(nn.Module):
                 break
         
         if is_prefill:
-            self.real_pos = idx.shape[-1]
-        self.real_pos += len(output_ids)
+            self.real_pos = len(output_ids)
+        else:
+            self.real_pos += len(output_ids)
 
         return torch.concat(output_ids, dim=0)
 
