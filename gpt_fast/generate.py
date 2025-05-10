@@ -78,23 +78,36 @@ def causal_mask(b, h, q, kv):
 
 
 def prefill(
-    model: Transformer | HAMburger, 
+    model: Transformer, 
     x: torch.Tensor, 
     input_pos: torch.Tensor, 
-    is_hamburger: bool = False, 
+    **sampling_kwargs
+) -> torch.Tensor:
+    # TODO: probably need to separate later for compiling
+    mask = create_block_mask(causal_mask, 1, 1, input_pos.shape[0], model.max_seq_length, device=x.device)
+    logits = model(mask, x, input_pos)
+    return sample(logits, **sampling_kwargs)[0]
+
+
+def prefill_hamburger(
+    model: HAMburger, 
+    x: torch.Tensor, 
+    input_pos: torch.Tensor, 
     **sampling_kwargs
 ) -> torch.Tensor:
     # input_pos: [B, S]
     mask = create_block_mask(causal_mask, 1, 1, input_pos.shape[0], model.max_seq_length, device=x.device)
-    if is_hamburger:
-        # we need to sample ourselves
-        return model(mask, x, input_pos, is_prefill=True)
-    else:
-        logits = model(mask, x, input_pos)
-        return sample(logits, **sampling_kwargs)[0]
+    # we need to sample ourselves
+    return model(mask, x, input_pos, is_prefill=True)
 
 
-def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, block_mask: BlockMask, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+def decode_one_token(
+    model: Transformer, 
+    x: torch.Tensor, 
+    input_pos: torch.Tensor, 
+    block_mask: BlockMask, 
+    **sampling_kwargs
+) -> Tuple[torch.Tensor, torch.Tensor]:
     # input_pos: [B, 1]
     assert input_pos.shape[-1] == 1
     block_index = input_pos // block_mask.BLOCK_SIZE[0]
@@ -105,20 +118,60 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
     return sample(logits, **sampling_kwargs)
 
 
-def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
-    block_mask = create_block_mask(causal_mask, 1, 1, model.max_seq_length, model.max_seq_length, device=cur_token.device)
-    new_tokens, new_probs = [], []
-    for i in range(num_new_tokens):
-        next_token, next_prob = decode_one_token(
-            model, cur_token, input_pos, block_mask, **sampling_kwargs
-        )
-        input_pos += 1
-        new_tokens.append(next_token.clone())
-        callback(new_tokens[-1])
-        new_probs.append(next_prob.clone())
-        cur_token = next_token.clone()
+def decode_tokens_hamburger(
+    model: HAMburger, 
+    x: torch.Tensor, 
+    input_pos: torch.Tensor, 
+    block_mask: BlockMask, 
+    **sampling_kwargs
+) -> torch.Tensor:
+    # input_pos: [1, N]
+    block_index = input_pos // block_mask.BLOCK_SIZE[0]
+    mask = block_mask[:, :, block_index]
+    mask.mask_mod = block_mask.mask_mod
+    mask.seq_lengths = (1, model.max_seq_length)
+    return model(mask, x, input_pos, is_prefill=False)
 
-    return new_tokens, new_probs
+
+def decode_n_tokens(
+    model: Transformer | HAMburger, 
+    cur_token: torch.Tensor, 
+    input_pos: torch.Tensor, 
+    num_new_tokens: int, 
+    callback=lambda _: _, 
+    is_hamburger: bool = False, 
+    **sampling_kwargs
+):
+    block_mask = create_block_mask(causal_mask, 1, 1, model.max_seq_length, model.max_seq_length, device=cur_token.device)
+
+    if is_hamburger:
+        total_gen = 0
+        new_tokens = [] # We don't use hamburger for draft so no need to output probs
+        while total_gen < num_new_tokens:
+            next_token = decode_tokens_hamburger(
+                model, cur_token, input_pos, block_mask, is_hamburger=True, **sampling_kwargs
+            )
+            output_len = len(next_token)
+            input_pos += 1
+            total_gen += output_len
+            new_tokens.append(next_token.clone())
+            # TODO: ignore callback for now
+            cur_token = next_token[None, ].clone()
+
+        return torch.cat(new_tokens, dim=-1)[:num_new_tokens], None
+    else:
+        new_tokens, new_probs = [], []
+        for i in range(num_new_tokens):
+            next_token, next_prob = decode_one_token(
+                model, cur_token, input_pos, block_mask, **sampling_kwargs
+            )
+            input_pos += 1
+            new_tokens.append(next_token.clone())
+            callback(new_tokens[-1])
+            new_probs.append(next_prob.clone())
+            cur_token = next_token.clone()
+
+        return new_tokens, new_probs
 
 
 def model_forward(model, x, input_pos):
@@ -220,7 +273,11 @@ def generate(
     input_pos = torch.arange(0, T, device=device)
 
     # From now on, we might output more than one token per step for HAMburger
-    next_token = prefill(model, prompt.view(batch_size, -1), input_pos, is_hamburger, **sampling_kwargs).clone()
+    if is_hamburger:
+        next_token = prefill_hamburger(model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs).clone()
+    else:
+        next_token = prefill(model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs).clone()
+    
     if is_speculative:
         assert not is_hamburger, "HAMburger does not support spec decoding"
         prefill(draft_model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs)
@@ -228,14 +285,13 @@ def generate(
     if is_hamburger:
         output_len = len(next_token)
         prefill_end = min(T + output_len, max_seq_length)
-        seq[:, T:prefill_end] = next_token[:prefill_end - T]
-        seq = seq[:, :prefill_end]
+        next_token = next_token[:prefill_end - T]
+        seq[:, T:prefill_end] = next_token
     else:
         seq[:, T] = next_token.squeeze()
 
-    return seq, {"accept_counts": None}
-
-    input_pos = torch.tensor([T], device=device, dtype=torch.int)
+    input_pos = torch.tensor([T], device=device, dtype=torch.int)    
+    
     accept_counts = [0] * (speculate_k + 1)
 
     if is_speculative:
@@ -256,8 +312,21 @@ def generate(
             input_pos = input_pos + num_added
             next_token = next_tokens[-1]
     else:
-        generated_tokens, _ = decode_n_tokens(model, next_token.view(batch_size, -1), input_pos, max_new_tokens - 1, callback=callback, **sampling_kwargs)
-        seq[:, T + 1:] = torch.cat(generated_tokens, dim=-1)
+        generated_tokens, _ = decode_n_tokens(
+            model, 
+            next_token.view(batch_size, -1), 
+            input_pos, 
+            max_new_tokens - (output_len if is_hamburger else 1), 
+            callback=callback,
+            is_hamburger=is_hamburger,  
+            **sampling_kwargs
+        )
+        # TODO: it might hurt performance for HAMburger if we continue
+        # generation after EOS
+        if is_hamburger:
+            seq[:, prefill_end:] = generated_tokens[None, ]
+        else:
+            seq[:, T + 1:] = torch.cat(generated_tokens, dim=-1)
 
     generate_stats = {
         'accept_counts': accept_counts
@@ -386,6 +455,7 @@ def main(
         assert batch_size == 1, "Currently hamburger doesn't support batch size > 1"
         assert not use_tp, "Currently hambuger doesn't support TP"
         assert not compile, "Currently hambuger doesn't support compile"
+        assert not interactive, "Currently hambuger doesn't support interactive"
 
     print("Loading model ...")
     t0 = time.time()

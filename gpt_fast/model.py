@@ -162,12 +162,16 @@ class Transformer(nn.Module):
         mask: BlockMask, 
         idx: Tensor, 
         input_pos: Optional[Tensor] = None, 
+        freqs_cis_pos: Optional[Tensor] = None, 
         skip_embedding: bool = False, 
         feature_layer_indices: List[int] = [] # for hamburger
     ) -> Tensor | List[Tensor]:
         assert self.freqs_cis is not None, "Caches must be initialized first"
         mask.mask_mod = self.get_mask_mod(mask.mask_mod, input_pos[0])
-        freqs_cis = self.freqs_cis[input_pos]
+        if freqs_cis_pos is not None:
+            freqs_cis = self.freqs_cis[freqs_cis_pos]
+        else: 
+            freqs_cis = self.freqs_cis[input_pos]
         if skip_embedding:
             x = idx
         else:
@@ -384,6 +388,9 @@ class HAMburger(nn.Module):
         self.max_batch_size = -1
         self.max_seq_length = -1
 
+        # this is hacky but we will use it for now
+        self.real_pos = 0
+
     @classmethod
     def from_transformer(cls, model: Transformer) -> "HAMburger":
         return cls(model)
@@ -416,14 +423,18 @@ class HAMburger(nn.Module):
                 input_pos: [seqlen]
         """
 
-        # Compositional embedder [bs, l, d]
+        # Compositional embedder 
         x = self.comp_embedder.forward(idx, is_prefill)
+
+        # Compute the pos for positional embedding
+        freqs_cis_pos = input_pos + self.real_pos
 
         # Base models list of [bs, 1, d] since we just want the last one
         features = self.model.forward(
             mask=mask, 
             idx=x, 
             input_pos=input_pos, 
+            freqs_cis_pos=freqs_cis_pos, 
             skip_embedding=True, 
             feature_layer_indices=self.micro_step_decoder.feature_layer_indices
         )
@@ -471,6 +482,10 @@ class HAMburger(nn.Module):
                     break
             elif pred_stop > 0.5:
                 break
+
+        if is_prefill:
+            self.real_pos = idx.shape[-1]
+        self.real_pos += len(output_ids)
 
         return torch.concat(output_ids, dim=0)
 
