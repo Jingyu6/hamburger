@@ -412,7 +412,8 @@ B_INST, E_INST = "[INST]", "[/INST]"
 
 
 def main(
-    prompt: Union[int, str] = "Hello, my name is",
+    prompt: Union[int, str] = "Hello, my name is", 
+    prompt_file: Optional[Path] = None, 
     interactive: bool = False,
     num_samples: int = 5,
     max_new_tokens: int = 100,
@@ -470,6 +471,10 @@ def main(
 
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path, is_hamburger)
 
+    if prompt_file is not None:
+        with open(prompt_file, 'r') as f:
+            prompt = f.read()
+    
     if isinstance(prompt, str):
         encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
     else:
@@ -599,6 +604,7 @@ if __name__ == '__main__':
             return x
 
     parser.add_argument('--prompt', type=int_or_str, default="Hello, my name is", help="Input prompt. If it's an integer, will instead generate a synthetic prompt.")
+    parser.add_argument('--prompt_file', type=Path, help="Input prompt, in the form of a file")
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
@@ -618,7 +624,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.batch_size, args.top_k,
+        args.prompt, args.prompt_file, args.interactive, args.num_samples, args.max_new_tokens, args.batch_size, args.top_k,
         args.temperature, args.checkpoint_path, args.compile, args.compile_prefill, args.profile, args.draft_checkpoint_path,
         args.speculate_k, args.is_hamburger, args.device
     )
