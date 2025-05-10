@@ -333,7 +333,7 @@ class _ConditionalMicroStepDecoder(nn.Module):
         self.max_seq_length = -1
         self.max_batch_size = -1
         self.get_mask_mod = get_mask_mod
-        self.mask = None
+        self.masks = []
 
     def setup_caches(self, max_batch_size, config, dtype):
         # no more check for seq_len since its fixed
@@ -361,10 +361,17 @@ class _ConditionalMicroStepDecoder(nn.Module):
             config.rope_scaling
         )
 
-        self.mask = create_block_mask(
-            lambda b, h, q, kv: q >= kv, 
-            1, 1, self.max_seq_length, self.max_seq_length
-        )
+        def _create_base_mask():
+            return create_block_mask(
+                lambda b, h, q, kv: q >= kv, 
+                1, 1, self.max_seq_length, self.max_seq_length
+            )
+
+        self.masks.append(_create_base_mask())
+        for i in range(1, self.max_steps - 1):
+            mask = _create_base_mask()
+            mask.mask_mod = self.get_mask_mod(mask.mask_mod, len(self.feature_layer_indices) + i)
+            self.masks.append(mask)
 
 
 class HAMburger(nn.Module):
@@ -396,6 +403,9 @@ class HAMburger(nn.Module):
         return cls(model)
 
     def setup_caches(self, max_batch_size, max_seq_length):
+        # In case we have an extra step at the end
+        max_seq_length = max_seq_length + self.max_steps
+
         dtype = self.model.output.weight.dtype
         # For quantized layers, dtype is encoded in scales
         if hasattr(self.model.output, "scales"):
@@ -427,7 +437,10 @@ class HAMburger(nn.Module):
         x = self.comp_embedder.forward(idx, is_prefill)
 
         # Compute the pos for positional embedding
-        freqs_cis_pos = input_pos + self.real_pos
+        if is_prefill:
+            freqs_cis_pos = input_pos
+        else: 
+            freqs_cis_pos = input_pos + self.real_pos
 
         # Base models list of [bs, 1, d] since we just want the last one
         features = self.model.forward(
@@ -447,12 +460,13 @@ class HAMburger(nn.Module):
         for i in range(self.max_steps):
             if i > 0:
                 # TODO: Look at how cache is done
-                self.micro_step_decoder.mask.mask_mod = \
-                    self.micro_step_decoder.get_mask_mod(
-                        self.micro_step_decoder.mask.mask_mod, micro_input_pos[0])
-                micro_freqs_cis = self.micro_step_decoder.freqs_cis[micro_input_pos]
                 for decoder in self.micro_step_decoder.decoders:
-                    hiddens = decoder(hiddens, micro_input_pos, micro_freqs_cis, self.micro_step_decoder.mask)
+                    hiddens = decoder(
+                        hiddens, 
+                        micro_input_pos, 
+                        self.micro_step_decoder.freqs_cis[micro_input_pos], 
+                        self.micro_step_decoder.masks[i - 1]
+                    )
             
                 micro_input_pos = torch.arange(
                     micro_input_pos[-1] + 1, 
@@ -482,7 +496,7 @@ class HAMburger(nn.Module):
                     break
             elif pred_stop > 0.5:
                 break
-
+        
         if is_prefill:
             self.real_pos = idx.shape[-1]
         self.real_pos += len(output_ids)
