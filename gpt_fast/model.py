@@ -162,39 +162,48 @@ class Transformer(nn.Module):
         mask: BlockMask, 
         idx: Tensor, 
         input_pos: Optional[Tensor] = None, 
-        freqs_cis_pos: Optional[Tensor] = None, 
-        skip_embedding: bool = False, 
-        feature_layer_indices: List[int] = [] # for hamburger
-    ) -> Tensor | List[Tensor]:
+    ) -> Tensor:
         assert self.freqs_cis is not None, "Caches must be initialized first"
         mask.mask_mod = self.get_mask_mod(mask.mask_mod, input_pos[0])
-        if freqs_cis_pos is not None:
-            freqs_cis = self.freqs_cis[freqs_cis_pos]
-        else: 
-            freqs_cis = self.freqs_cis[input_pos]
-        if skip_embedding:
-            x = idx
-        else:
-            x = self.tok_embeddings(idx)
+        freqs_cis = self.freqs_cis[input_pos]
+        x = self.tok_embeddings(idx)
 
-        return_features = len(feature_layer_indices) > 0
-        if return_features:
-            features = []
+        for i, layer in enumerate(self.layers):
+            x = layer(x, input_pos, freqs_cis, mask)
+        x = self.norm(x)
+        logits = self.output(x)
+
+        return logits
+    
+    def forward_hamburger(
+        self, 
+        mask: BlockMask, 
+        idx: Tensor, 
+        input_pos: Optional[Tensor] = None, 
+        freqs_cis_pos: Optional[Tensor] = None
+    ) -> Tensor | List[Tensor]:
+        """
+            We use a separate API to reduce if else branch
+        """
+        assert self.freqs_cis is not None, "Caches must be initialized first"
+        mask.mask_mod = self.get_mask_mod(mask.mask_mod, input_pos[0])
+        freqs_cis = self.freqs_cis[freqs_cis_pos]
+        x = idx
+
+        feature_offset = 0
+        features = [None] * len(self.feature_layer_indices)
 
         for i, layer in enumerate(self.layers):
             x = layer(x, input_pos, freqs_cis, mask)
             # we store the last one after norm
-            if i in feature_layer_indices and i != len(self.layers) - 1:
-                features.append(x[:, -1:, :])
+            if i in self.feature_layer_indices:
+                features[feature_offset] = x[:, -1:, :]
+                feature_offset += 1
         x = self.norm(x)
+        features[-1] = x[:, -1:, :]
         
-        if len(self.layers) - 1 in feature_layer_indices:
-            features.append(x[:, -1:, :])
-        if return_features:
-            return features
-        
-        logits = self.output(x)
-        return logits
+        return features
+    
 
     @classmethod
     def from_name(cls, name: str):
@@ -390,7 +399,11 @@ class HAMburger(nn.Module):
             config=self.model.config, 
             max_steps=self.max_steps
         )
-        self.micro_step_confidence = None
+
+        self.micro_step_confidence = 0.5
+
+        # add attribute
+        self.model.feature_layer_indices = self.micro_step_decoder.feature_layer_indices
 
         # gpt-fast related
         self.max_batch_size = -1
@@ -444,13 +457,11 @@ class HAMburger(nn.Module):
             freqs_cis_pos = input_pos + self.real_pos
 
         # Base models list of [bs, 1, d] since we just want the last one
-        features = self.model.forward(
+        features = self.model.forward_hamburger(
             mask=mask, 
             idx=x, 
             input_pos=input_pos, 
-            freqs_cis_pos=freqs_cis_pos, 
-            skip_embedding=True, 
-            feature_layer_indices=self.micro_step_decoder.feature_layer_indices
+            freqs_cis_pos=freqs_cis_pos
         )
 
         hiddens = torch.concat(features, dim=1)
@@ -494,11 +505,8 @@ class HAMburger(nn.Module):
 
             output_ids.append(pred_token)
 
-            if self.micro_step_confidence is not None:
-                # we stop if our continue confident is less than X
-                if (1.0 - pred_stop) < self.micro_step_confidence:
-                    break
-            elif pred_stop > 0.5:
+            # we stop if our continue confident is less than X
+            if (1.0 - pred_stop) < self.micro_step_confidence:
                 break
         
         if is_prefill:
