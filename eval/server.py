@@ -62,6 +62,9 @@ class ModelLitAPI(ls.LitAPI):
         if self.model_type == "hf":
             output = self.model(
                 filtered_conversation, 
+                do_sample=False, # make sure we're the same as other models
+                temperature=None, 
+                top_p=None, 
                 max_new_tokens=max_gen_len
             )[0]["generated_text"][-1]["content"] # in case of multi-turn
         elif self.model_type == "m2d":
