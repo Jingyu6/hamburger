@@ -8,7 +8,8 @@ case "$1" in
     "m2d")
         python -m eval.server \
             --model_name /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-skip-finish.ckpt \
-            --model_type m2d
+            --model_type m2d \
+            --confidence $2
         ;;
     *)
         echo Invalid choice of model type. 

@@ -2,8 +2,7 @@
     This script provide a common OpenAI compatible API for evaluation. 
     We currently support three kinds of models:
         1. Huggingface Models
-        2. Byte Latent Transformers
-        3. Our M2D Models
+        2. Our M2D Models
 """
 
 import argparse
