@@ -7,7 +7,7 @@ case "$1" in
         ;;
     "m2d")
         python -m eval.server \
-            --model_name /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-code-math-skip-finish.ckpt \
+            --model_name /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-0506-finish.ckpt \
             --model_type m2d \
             --confidence $2
         ;;
