@@ -174,8 +174,8 @@ def decode_n_tokens(
         return new_tokens, new_probs
 
 
-def model_forward(model, x, input_pos):
-    return model(x, input_pos)
+def model_forward(model, x, input_pos, mask):
+    return model(mask, x, input_pos)
 
 
 def speculative_decode(
@@ -191,42 +191,48 @@ def speculative_decode(
     orig_input_pos = torch.tensor([input_pos], dtype=torch.int64, device=cur_token.device)
     draft_tokens, draft_probs = decode_n_tokens(draft_model, cur_token.view(1, -1), orig_input_pos.clone(), speculate_k, **sampling_kwargs)
 
-    draft_tokens = torch.cat(draft_tokens)
+    draft_tokens = torch.cat(draft_tokens, dim=1)
     # parallel inference on target model using draft tokens
+    block_mask = create_block_mask(causal_mask, 1, 1, model.max_seq_length, model.max_seq_length, device=device)
     target_logits = model_forward(
         model,
-        torch.cat([cur_token.view(1), draft_tokens]).view(1, -1),
-        torch.arange(input_pos, input_pos + speculate_k + 1, device=cur_token.device)
+        torch.cat([cur_token.view(1, -1), draft_tokens], dim=-1).view(1, -1),
+        torch.arange(input_pos, input_pos + speculate_k + 1, device=cur_token.device), 
+        block_mask
     )
     target_probs = logits_to_probs(target_logits[0], **sampling_kwargs)
-    draft_probs = torch.stack(draft_probs)
+    draft_probs = torch.cat(draft_probs)
+
     # q: target prob, p: draft prob
     # q >= p: always accept draft token
     # q < p: q/p prob to accept draft token
     p = draft_probs[torch.arange(0, speculate_k, device=device), draft_tokens]
     q = target_probs[torch.arange(0, speculate_k, device=device), draft_tokens]
-    accept_draft_prob = torch.minimum(torch.ones(()), q[:speculate_k]/ p)
+
+    accept_draft_prob = torch.minimum(torch.ones_like(q[:speculate_k]), q[:speculate_k] / p)
     rejected_locations = (torch.rand_like(accept_draft_prob) > accept_draft_prob).nonzero()
 
     if rejected_locations.shape[0] == 0: # All draft tokens have been accepted
         accept_length = speculate_k + 1
         last_token = multinomial_sample_one_no_sync(target_probs[-1])
         # fill last token into draft model
+        block_mask = create_block_mask(causal_mask, 1, 1, 1, model.max_seq_length, device=device)
         model_forward(
             draft_model,
-            draft_tokens[-1].view(1, -1),
-            orig_input_pos + speculate_k,
+            draft_tokens[0, -1].view(1, -1),
+            orig_input_pos + speculate_k, 
+            block_mask
         )
-        return torch.cat([draft_tokens, last_token])
+        return torch.cat([draft_tokens.view(-1), last_token])
     else:
-        accept_length = rejected_locations[0].item()
+        accept_length = rejected_locations[0][-1].item()
         p = draft_probs[accept_length]
         q = target_probs[accept_length]
         new = q - p
         new = torch.where(new > 0, new, 0.0)
         new = new / new.sum()
         next_token = multinomial_sample_one_no_sync(new)
-        return torch.cat([draft_tokens[:accept_length], next_token])
+        return torch.cat([draft_tokens[0, :accept_length].view(-1), next_token])
 
 
 @torch.no_grad()
@@ -298,7 +304,7 @@ def generate(
         assert not is_hamburger, "HAMburger does not support spec decoding"
         input_pos = input_pos.item()  # for speculative decoding easier to keep on host
         while input_pos < T_new - 1:
-            cur_token = next_token.view(())
+            cur_token = next_token.view(1, -1)
 
             next_tokens = speculative_decode(
                 model, draft_model, cur_token, input_pos, speculate_k, **sampling_kwargs
@@ -306,7 +312,7 @@ def generate(
 
             accept_counts[len(next_tokens) - 1] += 1
             num_added = min(T_new - input_pos - 1, len(next_tokens))
-            seq[input_pos + 1 : input_pos + num_added + 1] = next_tokens[: num_added]
+            seq[:, input_pos + 1 : input_pos + num_added + 1] = next_tokens[: num_added]
             for i in next_tokens[: num_added,]:
                 callback(i)
             input_pos = input_pos + num_added
@@ -456,6 +462,9 @@ def main(
         assert not use_tp, "Currently hambuger doesn't support TP"
         assert not compile and not compile_prefill, "Currenly hamburger doesn't support compile"
         assert not interactive, "Currently hambuger doesn't support interactive"
+
+    if is_speculative:
+        assert batch_size == 1, "Currently speculative decoding is fixed with bs = 1"
 
     print("Loading model ...")
     t0 = time.time()
