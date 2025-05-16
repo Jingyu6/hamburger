@@ -1,7 +1,7 @@
 import re
 from typing import Dict, List
 
-from m2d.config import FormatConfig
+from hamburger.config import FormatConfig
 
 
 class Formatter:

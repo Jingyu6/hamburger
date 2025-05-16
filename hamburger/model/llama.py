@@ -11,11 +11,11 @@ from transformers import AutoTokenizer, LlamaForCausalLM, TextStreamer
 from transformers.cache_utils import DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
-from m2d.config import GenConfig
-from m2d.model.fa2_monkey_patch import prepare_fa2_from_position_ids
-from m2d.model.m2d_modules import (CompositionalEmbedder,
-                                   ConditionalMicroStepDecoder)
-from m2d.model.teacher import DistillTeacher
+from hamburger.config import GenConfig
+from hamburger.model.fa2_monkey_patch import prepare_fa2_from_position_ids
+from hamburger.model.hamburger_modules import (CompositionalEmbedder,
+                                               ConditionalMicroStepDecoder)
+from hamburger.model.teacher import DistillTeacher
 
 # apply a monkey patch here
 utils.prepare_fa2_from_position_ids = prepare_fa2_from_position_ids
@@ -55,7 +55,7 @@ class MergeMode(Enum):
     DECODE_SEP_LAST = 3
 
 
-class M2DLlama(L.LightningModule):
+class HAMburgerLlama(L.LightningModule):
     def __init__(
         self, 
         base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct", 
@@ -618,4 +618,4 @@ class M2DLlama(L.LightningModule):
 
 
 if __name__ == "__main__":
-    model = M2DLlama()
+    model = HAMburgerLlama()

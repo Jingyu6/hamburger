@@ -10,8 +10,8 @@ from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from m2d.config import GenConfig
-from m2d.model.llama import M2DLlama, MergeMode
+from hamburger.config import GenConfig
+from hamburger.model.llama import HAMburgerLlama, MergeMode
 
 GEN_CONFIG = GenConfig(
     micro_step_confidence=None
@@ -102,7 +102,7 @@ class KVCacheModel():
         self._top_k = top_k
         self._top_p = top_p
 
-        # for m2d models
+        # for hamburger models
         self._steps = None
 
     def _ar_forward_with_kvcache(self, input_ids: torch.Tensor) -> torch.Tensor:
@@ -146,7 +146,7 @@ class KVCacheModel():
         
         return torch.argmax(last_q, dim=-1, keepdim=True)
     
-    def _m2d_forward_with_kvcache(self, input_ids: torch.Tensor, idx: int) -> torch.Tensor:
+    def _hamburger_forward_with_kvcache(self, input_ids: torch.Tensor, idx: int) -> torch.Tensor:
         if self._past_key_values is None:
             assert self._prob_history is None, f"{self._prob_history.shape}"
             # prefill
@@ -237,9 +237,9 @@ class KVCacheModel():
         for idx in range(gamma):
             if self._model_type == "ar":
                 next_toks = self._ar_forward_with_kvcache(x)
-            elif self._model_type == "m2d":
+            elif self._model_type == "hamburger":
                 # we might end up draft more than gamma due to multi-step decode
-                next_toks = self._m2d_forward_with_kvcache(x, idx=idx)
+                next_toks = self._hamburger_forward_with_kvcache(x, idx=idx)
             else:
                 raise ValueError
             x = torch.cat((x, next_toks), dim=1)
@@ -263,7 +263,7 @@ class KVCacheModel():
                     self._past_key_values.value_cache[layer_idx][:, :, :end_pos, :]
             self._prob_history = self._prob_history[:, :end_pos, :]
 
-        elif self._model_type == "m2d":
+        elif self._model_type == "hamburger":
             # determine the number of KVs we need to evict
             prefix_len = self._prob_history.shape[-2]
 
@@ -465,7 +465,7 @@ def parse_args():
         default='meta-llama/Llama-3.2-1B-Instruct',
         help='HuggingFace model ID or path for draft model')
     parser.add_argument('--draft_model_type', type=str, 
-        default='ar', choices=["ar", "m2d"], 
+        default='ar', choices=["ar", "hamburger"], 
         help='What model type is used as the draft model')
     parser.add_argument('--draft_sep_last', action="store_true", 
         default=False)
@@ -529,8 +529,8 @@ def main():
             device_map=args.device
         )
         draft_model.speculate = draft_model.forward
-    elif args.draft_model_type == "m2d":
-        draft_model = M2DLlama.load_from_checkpoint(
+    elif args.draft_model_type == "hamburger":
+        draft_model = HAMburgerLlama.load_from_checkpoint(
             args.draft_model, 
             map_location='cpu'
         ).to(args.device)

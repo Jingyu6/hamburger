@@ -11,14 +11,14 @@ from tqdm import tqdm
 from transformers import pipeline
 
 sys.path.append("../../")
-from m2d.config import GenConfig
-from m2d.model.llama import M2DLlama
+from hamburger.config import GenConfig
+from hamburger.model.llama import HAMburgerLlama
 
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
-    parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "m2d"])
+    parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "hamburger"])
     parser.add_argument('--confidence', type=float)
 
     parser.add_argument('--exp', type=str, default=None, help="Experiment name. ")
@@ -63,7 +63,7 @@ def get_predictions(
                 max_new_tokens=max_gen
             )
             pred = outputs[0]["generated_text"][1]["content"]
-        elif model_type == "m2d":
+        elif model_type == "hamburger":
             outputs = model.generate(
                 prompt=prompt, 
                 config=GenConfig(
@@ -108,8 +108,8 @@ if __name__ == "__main__":
             torch_dtype=torch.bfloat16, 
             device_map="cuda"
         )
-    elif args.model_type == "m2d":
-        model = M2DLlama.load_from_checkpoint(args.model).to('cuda')
+    elif args.model_type == "hamburger":
+        model = HAMburgerLlama.load_from_checkpoint(args.model).to('cuda')
     else:
         raise ValueError
 
@@ -163,7 +163,7 @@ if __name__ == "__main__":
             confidence=args.confidence
         )
 
-        if args.model_type == "m2d":
-            assert isinstance(model, M2DLlama)
+        if args.model_type == "hamburger":
+            assert isinstance(model, HAMburgerLlama)
             model.report.get_speedup()
             model.report.reset()

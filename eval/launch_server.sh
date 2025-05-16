@@ -5,10 +5,10 @@ case "$1" in
             --model_name meta-llama/Llama-3.2-1B-Instruct \
             --model_type hf
         ;;
-    "m2d")
+    "hamburger")
         python -m eval.server \
-            --model_name /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-0506-finish.ckpt \
-            --model_type m2d \
+            --model_name /data/data_persistent1/jingyu/hamburger/ckpts/hamburger-llama-1B-0506-finish.ckpt \
+            --model_type hamburger \
             --confidence $2
         ;;
     *)

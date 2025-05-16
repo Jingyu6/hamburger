@@ -33,7 +33,7 @@ class _LoadableConfig:
             f"Using spec config:\n{json.dumps(asdict(self), indent=4)}"))
 
 @dataclass
-class M2DConfig(_LoadableConfig): 
+class HAMburgerConfig(_LoadableConfig): 
     seed: int = 227
     
     base_model_name: str = "meta-llama/Llama-3.2-1B-Instruct"

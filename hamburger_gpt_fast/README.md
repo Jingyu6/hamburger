@@ -3,7 +3,7 @@
 ### 1. First, we need to convert lightning checkpoint to gpt fast compatible checkpoint. 
 ```bash
 python scripts/convert_hamburger_checkpoint.py \
---lightning_checkpoint_path /data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-0506-finish.ckpt \
+--lightning_checkpoint_path /data/data_persistent1/jingyu/hamburger/ckpts/hamburger-llama-1B-0506-finish.ckpt \
 --save_checkpoint_path ./checkpoints/hamburger
 ```
 

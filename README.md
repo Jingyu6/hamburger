@@ -34,7 +34,7 @@ We welcome everyone to try and contribute to the code! Here're some planned TODO
 - 2025/03/06:
     * Pretrained models do have higher average conditional entropy than SFT model. 
     * The conditional entropy seem to be transferrable among different sizes. 
-    * Need to think about the difference between BLT and M2D
+    * Need to think about the difference between BLT and hamburger
     * Need to factor out the influence of the data by training on the base model. 
 
 - 2025/03/07:

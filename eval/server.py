@@ -2,7 +2,7 @@
     This script provide a common OpenAI compatible API for evaluation. 
     We currently support three kinds of models:
         1. Huggingface Models
-        2. Our M2D Models
+        2. Our HAMburger Models
 """
 
 import argparse
@@ -12,8 +12,8 @@ import litserve as ls
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
-from m2d.config import GenConfig
-from m2d.model.llama import M2DLlama
+from hamburger.config import GenConfig
+from hamburger.model.llama import HAMburgerLlama
 
 
 class ModelLitAPI(ls.LitAPI):
@@ -42,8 +42,8 @@ class ModelLitAPI(ls.LitAPI):
             tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             tokenizer.pad_token = tokenizer.eos_token
             self.model = pipeline(task="text-generation", model=model, tokenizer=tokenizer)
-        elif self.model_type == "m2d":
-            self.model: M2DLlama = M2DLlama.load_from_checkpoint(self.model_name).to(self.device)
+        elif self.model_type == "hamburger":
+            self.model: HAMburgerLlama = HAMburgerLlama.load_from_checkpoint(self.model_name).to(self.device)
         else:
             raise NotImplemented
 
@@ -67,7 +67,7 @@ class ModelLitAPI(ls.LitAPI):
                 top_p=None, 
                 max_new_tokens=max_gen_len
             )[0]["generated_text"][-1]["content"] # in case of multi-turn
-        elif self.model_type == "m2d":
+        elif self.model_type == "hamburger":
             gen_config = GenConfig(micro_step_confidence=self.confidence)
             gen_config.max_gen_len = max_gen_len
             output = self.model.generate(
@@ -84,7 +84,7 @@ class ModelLitAPI(ls.LitAPI):
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
-    parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "m2d"])
+    parser.add_argument('--model_type', type=str, default="hf", choices=["hf", "hamburger"])
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--confidence', type=float)

@@ -4,14 +4,14 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
-from m2d.config import M2DConfig
-from m2d.data.m2d_data import M2DDataModule
-from m2d.model.llama import M2DLlama
+from hamburger.config import HAMburgerConfig
+from hamburger.data.hamburger_data import M2DDataModule
+from hamburger.model.llama import HAMburgerLlama
 
 # make sure the huge cache file is not in /home
 os.environ["WANDB_CACHE_DIR"] = "/data/data_persistent1/jingyu/wandb_cache"
 
-config = M2DConfig.from_path("./local/train.yaml")
+config = HAMburgerConfig.from_path("./local/train.yaml")
 config.print_config()
 
 L.seed_everything(config.seed)
@@ -19,11 +19,11 @@ L.seed_everything(config.seed)
 # create model
 if config.pretrained_ckpt_path is not None:
     print("Starting from pretrained ckpt...")
-    model = M2DLlama.load_from_checkpoint(
+    model = HAMburgerLlama.load_from_checkpoint(
         config.pretrained_ckpt_path, map_location="cpu")
 else:
     print("Starting from scratch...")
-    model = M2DLlama(base_model_name=config.base_model_name)
+    model = HAMburgerLlama(base_model_name=config.base_model_name)
 
 # prepare data
 data_module = M2DDataModule(
@@ -39,14 +39,14 @@ checkpoint_callback = ModelCheckpoint(
     monitor="step",
     mode="max",
     every_n_train_steps=2048, 
-    dirpath="/data/data_persistent1/jingyu/m2d/ckpts",
-    filename="m2d-llama" + f"-{config.run_name}-" + "{step}",
+    dirpath="/data/data_persistent1/jingyu/hamburger/ckpts",
+    filename="hamburger-llama" + f"-{config.run_name}-" + "{step}",
 )
 
 # logger
 wandb_logger = WandbLogger(
     name=config.run_name if config.run_name != "" else None, 
-    project="m2d", 
+    project="hamburger", 
     log_model="all"
 )
 
@@ -74,4 +74,4 @@ trainer.fit(
 )
 
 trainer.save_checkpoint(
-    f"/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-{config.run_name}-finish.ckpt")
+    f"/data/data_persistent1/jingyu/hamburger/ckpts/hamburger-llama-{config.run_name}-finish.ckpt")

@@ -5,17 +5,17 @@ import torch
 from transformers import (AutoModelForCausalLM, AutoTokenizer, TextStreamer,
                           pipeline)
 
-from m2d.config import GenConfig
-from m2d.model.llama import M2DLlama
+from hamburger.config import GenConfig
+from hamburger.model.llama import HAMburgerLlama
 
 L.seed_everything(227)
 
 # create model
-m2d_model: M2DLlama = M2DLlama.load_from_checkpoint(
-    "/data/data_persistent1/jingyu/m2d/ckpts/m2d-llama-1B-0506-finish.ckpt", 
+hamburger_model: HAMburgerLlama = HAMburgerLlama.load_from_checkpoint(
+    "/data/data_persistent1/jingyu/hamburger/ckpts/hamburger-llama-1B-0506-finish.ckpt", 
     map_location='cpu'
 ).to('cuda')
-m2d_tokenizer = AutoTokenizer.from_pretrained(m2d_model.base_model_name)
+hamburger_tokenizer = AutoTokenizer.from_pretrained(hamburger_model.base_model_name)
 
 hf_model = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Llama-3.2-1B-Instruct", 
@@ -33,13 +33,13 @@ MAX_GEN_LEN = 1024
 SYS_MSG = "You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. "
 
 while True:
-    model = input("\033[32mWhat model to use [m2d/base]?\033[0m ")
+    model = input("\033[32mWhat model to use [hamburger/base]?\033[0m ")
     prompt = input("\033[32mInput:\033[0m\n")
     if os.path.exists(prompt):
         with open(prompt, 'r') as f:
             prompt = f.read()
 
-    if model == "m2d":
+    if model == "hamburger":
         while True:
             reason = input("\033[32mReason mode [yes]/no?\033[0m ")
             if reason in ["", "yes", "no"]:
@@ -48,7 +48,7 @@ while True:
         streamer = TextStreamer(tokenizer=hf_tokenizer, skip_prompt=True)
         streamer.next_tokens_are_prompt = False # remove artifacts
 
-        output = m2d_model.generate(
+        output = hamburger_model.generate(
             prompt=prompt, 
             config=GenConfig(
                 max_gen_len=MAX_GEN_LEN, 

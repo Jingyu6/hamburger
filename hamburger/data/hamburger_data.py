@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from m2d.data.segmentor import Segmentor
+from hamburger.data.segmentor import Segmentor
 
 
-class M2DDataModule(L.LightningDataModule):
+class HAMburgerDataModule(L.LightningDataModule):
     def __init__(
         self, 
         save_path: List[str] | str, 
@@ -277,7 +277,7 @@ class M2DDataModule(L.LightningDataModule):
         return DataLoader(
             self.train_data, 
             batch_size=self.batch_size, 
-            collate_fn=M2DDataModule._collate_fn, 
+            collate_fn=HAMburgerDataModule._collate_fn, 
             shuffle=True
         )
     
@@ -285,7 +285,7 @@ class M2DDataModule(L.LightningDataModule):
         return DataLoader(
             self.test_data, 
             batch_size=self.batch_size, 
-            collate_fn=M2DDataModule._collate_fn, 
+            collate_fn=HAMburgerDataModule._collate_fn, 
         )
 
     def get_speedup_estimate(self):
@@ -340,7 +340,7 @@ if __name__ == "__main__":
     filter_fn = eval(args.filter_fn) if args.filter_fn else None
     map_fn = eval(args.map_fn) if args.map_fn else None
 
-    M2DDataModule.from_hf_dataset(
+    HAMburgerDataModule.from_hf_dataset(
         dataset_name=args.dataset_name,
         save_path=args.save_path,
         model_name=args.model_name,

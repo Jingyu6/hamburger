@@ -7,8 +7,8 @@ from datasets import load_from_disk
 from transformers import (AutoModelForCausalLM, AutoTokenizer,
                           LlamaForCausalLM, Trainer, TrainingArguments)
 
-from m2d.config import M2DConfig
-from m2d.data.m2d_data import M2DDataModule
+from hamburger.config import HAMburgerConfig
+from hamburger.data.hamburger_data import hamburgerDataModule
 
 
 def process_fn(example):
@@ -30,10 +30,10 @@ def get_dataset(data_path: str):
         train_ds = load_from_disk(data_path + "/train")
         test_ds = load_from_disk(data_path + "/test")
     else:
-        config = M2DConfig.from_path("./local/train.yaml")
+        config = HAMburgerConfig.from_path("./local/train.yaml")
         config.print_config()
 
-        data_module = M2DDataModule(
+        data_module = hamburgerDataModule(
             save_path=config.dataset_names, 
             test_ratio=config.test_ratio, 
             batch_size=config.batch_size, 
@@ -122,7 +122,7 @@ def main():
         max_steps=16384
     )
 
-    train_dataset, test_dataset = get_dataset("/data/data_persistent1/jingyu/m2d/baseline_data") 
+    train_dataset, test_dataset = get_dataset("/data/data_persistent1/jingyu/hamburger/baseline_data") 
 
     trainer = Trainer(
         model=model, 
@@ -137,14 +137,14 @@ def main():
     # saving
     if trainer.is_fsdp_enabled:
         trainer.accelerator.state.fsdp_plugin.set_state_dict_type("FULL_STATE_DICT")
-    trainer.save_model("/data/data_persistent1/jingyu/m2d/ckpts/baseline")
-    tokenizer.save_pretrained("/data/data_persistent1/jingyu/m2d/ckpts/baseline")
+    trainer.save_model("/data/data_persistent1/jingyu/hamburger/ckpts/baseline")
+    tokenizer.save_pretrained("/data/data_persistent1/jingyu/hamburger/ckpts/baseline")
 
     trainer.accelerator.wait_for_everyone()
 
 
 if __name__ == "__main__": 
     """
-        WANDB_PROJECT=m2d accelerate launch train_baseline.py
+        WANDB_PROJECT=hamburger accelerate launch train_baseline.py
     """
     main()

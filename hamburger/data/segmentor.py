@@ -3,7 +3,7 @@ from typing import List, Optional
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from m2d.data.strategies import STRATEGIES
+from hamburger.data.strategies import STRATEGIES
 
 
 class Segmentor:

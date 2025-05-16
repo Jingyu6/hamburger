@@ -2,8 +2,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from m2d.data.strategies import STRATEGIES
-from m2d.plot_utils import plot_values
+from hamburger.data.strategies import STRATEGIES
+from hamburger.plot_utils import plot_values
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", use_fast=True)
 model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(

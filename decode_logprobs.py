@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
 
-from m2d.plot_utils import plot_values
+from hamburger.plot_utils import plot_values
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct", use_fast=True)
 model: LlamaForCausalLM = AutoModelForCausalLM.from_pretrained(
