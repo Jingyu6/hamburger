@@ -30,8 +30,6 @@ base_model = pipeline(task="text-generation", model=hf_model, tokenizer=hf_token
 
 MAX_GEN_LEN = 1024
 
-SYS_MSG = "You're a helpful AI assistant, and think carefully before giving your final answer. Wrap your reasoning process in <think> and </think>. "
-
 while True:
     model = input("\033[32mWhat model to use [hamburger/base]?\033[0m ")
     prompt = input("\033[32mInput:\033[0m\n")
@@ -40,21 +38,12 @@ while True:
             prompt = f.read()
 
     if model == "hamburger":
-        while True:
-            reason = input("\033[32mReason mode [yes]/no?\033[0m ")
-            if reason in ["", "yes", "no"]:
-                break
-        
         streamer = TextStreamer(tokenizer=hf_tokenizer, skip_prompt=True)
         streamer.next_tokens_are_prompt = False # remove artifacts
 
         output = hamburger_model.generate(
             prompt=prompt, 
-            config=GenConfig(
-                max_gen_len=MAX_GEN_LEN, 
-                system_message=SYS_MSG if (reason in ["", "yes"]) else None, 
-                remove_think=(reason in ["", "yes"])
-            ), 
+            config=GenConfig(max_gen_len=MAX_GEN_LEN), 
             streamer=streamer
         )
 

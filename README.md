@@ -57,3 +57,21 @@ bash ./eval/launch_server.sh hf # for baseline
 bash ./eval/launch_server.sh hamburger 0.8 # for hamburger
 ```
 3. Run any commands found in `./eval/standard/client.sh` for each individual task. 
+
+## FAQ
+
+1. **How is HAMburger different from other multi-token LLMs such as Byte Latent Transformer, MegaByte, and BlockTransformer?**
+
+- HAMburger outputs at the granularity of tokens instead of bytes, making it more efficient at inference than methods that are based of bytes. 
+- HAMburger can dynamically decide how many tokens to generate at each macro-step instead of fixing a patch size, which can fully utilize the model's knowledge to maximally take advantage of a KV cache's capacity. 
+- HAMburger is standalone and does not require serving a separate model for segmentation during inference. 
+- HAMburger is the only instruct fine-tuned model, well evaluated on downstream chat tasks and ready to be used by many applications. 
+
+2. **How do we compare HAMburger to speculative decoding?**
+
+    HAMburger can be regarded as a special case of self-speculative decoding with several favorable features:
+- All drafted tokens from the micro-step decoder will be accepted from the last macro-step, and would stop generation otherwise. 
+- A single forward (and hence a single KV cache) is required for _verification_ regardless of the number of tokens produced from last step. 
+- No alignment of the draft model is needed as the training itself has implicitly performed the process like MTP. This also greatly simplifies the serving complexity. 
+- A tunable paramter called confidence-level is introduced to help trade-off quality and speedup. 
+- Finally, we want to emphasize that HAMburger is extremely batch-friendly due to highly parallelizable drafted modules, which makes it suitable for high-throughput applications where speculative decoding can become less effective. 
