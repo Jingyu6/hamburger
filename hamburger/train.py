@@ -11,7 +11,7 @@ from hamburger.model.llama import HAMburgerLlama
 # make sure the huge cache file is not in /home
 os.environ["WANDB_CACHE_DIR"] = "/data/data_persistent1/jingyu/wandb_cache"
 
-config = HAMburgerConfig.from_path("./local/train.yaml")
+config = HAMburgerConfig.from_path("./train.yaml")
 config.print_config()
 
 L.seed_everything(config.seed)

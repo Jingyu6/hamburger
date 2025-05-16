@@ -1,3 +1,7 @@
+torch==2.5.1
+transformers==4.51.3
+matplotlib
+seaborn
 lightning
 deepspeed
 litserve

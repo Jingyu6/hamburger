@@ -1,103 +1,59 @@
-# micro_step
+# HAMburger: Accelerating LLM Inference via Token Smashing
 
-### TODOs
-We welcome everyone to try and contribute to the code! Here're some planned TODOs
-- [ ] Finish basic evaluation of the new model. 
-- [ ] Evaluate code and GSM8k
-- [ ] Data ablation
-- [ ] vLLM or Sglang implementation & weight conversion script
-- [ ] Benchmark output
+## Introduction
+HAMburger is a hierachically auto-regressive model that can output multiple tokens per forward. Our approach reduces the growth of KV cache _computation_ from linear to sub-linear w.r.t. the generation length and achieves a TPS speedup proportionally. On both standard tasks and long-context tasks, HAMburger achieves up to 2x TPS boost and 2x KV cache computation (and storage) while maintaining or even surpassing the base model. 
 
-### Data
-* tinycodepython
-* pythonalpaca
-* opencoder
-* opencoder2
-* magicoder
+## Architecture
+HAMburger stacks a standard LLM (e.g., Llama-3.2-1B-Instruct) with a relative-position-aware compositional embedder before it that smashes multiple tokens into one from the last step, and a micro-step decoder after it that outputs tokens with constant FLOPs. 
 
-* openorca
-* openplatypus
-* ifevallike
-* gsm8k
+## Environment Setup
+Use conda as below:
+```bash
+conda create -yn hamburger python=3.10.15
+conda activate hamburger
+pip3 install -r requirements.txt
+```
 
-* metamathqa
-* openr1math
-* mathgpt
-* mathinstruct
-* mathplus
+## Training
+HAMburger is instruction-finetuned with publicly available datasets and we provide both the training code and our trained checkpoints for full reproduction. 
 
-### Logs
-- 2025/02/25: 
-    * There seems to be a big performance difference on code using "\n" v.s. \n. 
-    * Humaneval needs more output to finish. 
+### Data Preparation
+We prepared scripts for processing the data automatically and you can easily extend that by adding new datasets:
+```bash
+bash data_scripts/process.sh
+```
 
-- 2025/03/06:
-    * Pretrained models do have higher average conditional entropy than SFT model. 
-    * The conditional entropy seem to be transferrable among different sizes. 
-    * Need to think about the difference between BLT and hamburger
-    * Need to factor out the influence of the data by training on the base model. 
+### Start Training
+We trained our 1B model with 8xH100s. To reproduce our results, we suggest running: 
+```bash
+python3 -m hamburger.train
+```
 
-- 2025/03/07:
-    * Explore BLT local encoder
-    * Think about what's the main difference here
+## Inference
+We implement HAMburger on both GPT-Fast and HuggingFace for a balance of simplicity and performance. 
 
-- 2025/03/17:
-    * Found the best data mix so far
-        - Filtered out other languages
-        - Added more math data
-    * Next step
-        - Understand why the model works well for MBPP but not HumanEval
-        - Understand where the gap is for GSM8K 8-shot CoT
-        - Potentially pre-calculate entropy and do segment strategy ablation
-- 2025/03/18:
-    * Try zero shot gsm8k + manual answer extraction
-        - 8-shot has 23 invalid answers while 0-shot has 430
-        - 0-shot is only 2 points lower
-        - If 0-shot with manual extraction is higher, that means the model is working bad for few-shot, which might be fixed by adding similar data
-- 2025/03/23:
-    * Seems like training 3B models results in larger gap.
-        - The gap is larger when using the 3D model to segment data
-        - Probably due to the fact that we didn't take their confidence difference into account
-    * Trying a two-stage training to avoid catastrophic forgetting
-        - First freeze all except for newly introduced modules with 1e-4 lr
-        - Joint train all weights with 1e-5 lr
-        - Consider using LoRA for the base model
-- 2025/03/24:
-    * For arc-c, the task provides a prompt prefix.
-        - But this would be inconsistent with our training because the any generation should be determined by the model (segmentation), which might cause some ODD problem
-        - We can try disabling the prefix and see the result
-    * Result analysis
-        - Validation accuracy
-            * s1 < s2 (lr=1e-5) < joint < s2 (lr=5e-5)
-        - Arc challenge
-            * s1 < s2 (lr=5e-5) < s2 (lr=1e-5) < joint
-        - GSM8K
-            * s1 < s2 (lr=1e-5) < s2 (lr=5e-5) < joint
-        - HumanEval
-            * s1 < s2 (lr=1e-5) < joint < s2 (lr=5e-5)
-- 2025/04/01:
-    * We found that micro step decoder might have limited attention. 
-        - Based on this hypothesis, we decided to segment the data using sliding window, which will turn the full conditional entropy to limited history conditional entropy. 
-        - We test if the confidence calculated based on this will be more useful for deciding what tokens to merge. 
-- 2025/04/10:
-    * We found that using confidence to early stop can substantially improve the quality. 
-    * We found that using a residual + dimension-wise softmax for merger is helpful.
-- 2025/04/23:
-    * Finished spec eval
-    * Our acceptance rate is lower for target models of the same family
-    * Our acceptance rate is slightly lower for target models of different family but the problem is that the average drafting count is almost the same as baseline
-    * What can we try next:
-        - Maybe we can try few shot data to help with gsm8k
-        - We should definitely do segmentation strategy studies (the strong evidence is that if we constrain outputs based on confidence, its uniformly better. )
-    * The problem seems to be the generalization
+### Generation Demo
+To run streaming demo, simply do the following and choose the option based on guidance:
+```bash
+python generate.py
+```
 
-### Some Studies
+To run GPT-Fast version, please read guidance [here](./hamburger_gpt_fast/README.md). 
 
-- What is a better segmentation strategy? 
-    * Attention based method (including sparsity). 
-    * Sliding window to constraint history dependency?
-    * Entropy v.s. confidence. 
-    * Refined segmentation? Using trained model to further refine segmentation?
+### Evaluate Results
+All evaluation-related files are stored in `./eval`. To run LongBench, simply run:
+```bash
+cd ./eval/long_bench
+bash eval_long_bench.sh
+python summarize_results.py # this is optional
+```
 
-- Look at the attention map of trained model, both for the macro and micro step. 
-    * Micro step looks pretty decent, attention scores are pretty well distributed. i.e. all context tokens seem to be used fairly evenly. 
+To run standard tasks, we rely on `lm_eval` and `evalplus`:
+
+1. First, we need to apply some patches to `lm_eval` by copying (overwritting) `./eval/standard/lm_eval_patch/*` to your conda `lm_eval/tasks`.  
+2. Can can setup a server that has common API:
+```bash
+bash ./eval/launch_server.sh hf # for baseline
+bash ./eval/launch_server.sh hamburger 0.8 # for hamburger
+```
+3. Run any commands found in `./eval/standard/client.sh` for each individual task. 
