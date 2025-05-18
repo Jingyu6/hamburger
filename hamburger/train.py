@@ -5,7 +5,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from hamburger.config import HAMburgerConfig
-from hamburger.data.hamburger_data import M2DDataModule
+from hamburger.data.hamburger_data import HAMburgerDataModule
 from hamburger.model.llama import HAMburgerLlama
 
 # make sure the huge cache file is not in /home
@@ -26,7 +26,7 @@ else:
     model = HAMburgerLlama(base_model_name=config.base_model_name)
 
 # prepare data
-data_module = M2DDataModule(
+data_module = HAMburgerDataModule(
     save_path=config.dataset_names, 
     test_ratio=config.test_ratio, 
     batch_size=config.batch_size, 
