@@ -460,7 +460,7 @@ def main(
         assert draft_checkpoint_path is None, "Currently hamburger doesn't support spec decoding"
         assert batch_size == 1, "Currently hamburger doesn't support batch size > 1"
         assert not use_tp, "Currently hambuger doesn't support TP"
-        assert not compile and not compile_prefill, "Currenly hamburger doesn't support compile"
+        assert not compile_prefill, "Currenly hamburger doesn't support compile prefill"
         assert not interactive, "Currently hambuger doesn't support interactive"
 
     if is_speculative:
@@ -501,12 +501,16 @@ def main(
             global model_forward, logits_to_prob
             model_forward = torch.compile(model_forward, mode="reduce-overhead", fullgraph=True)
 
-        global decode_one_token, prefill
-        decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
+        if is_hamburger:
+            global decode_tokens_hamburger
+            decode_tokens_hamburger = torch.compile(decode_tokens_hamburger)
+        else:
+            global decode_one_token, prefill
+            decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
 
-        # Uncomment to squeeze more perf out of prefill
-        if compile_prefill:
-            prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
+            # Uncomment to squeeze more perf out of prefill
+            if compile_prefill:
+                prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
     aggregate_metrics = {
         'tokens_per_sec': [],
