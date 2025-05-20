@@ -203,7 +203,6 @@ class Transformer(nn.Module):
         features[-1] = x[:, -1:, :]
         
         return features
-    
 
     @classmethod
     def from_name(cls, name: str):

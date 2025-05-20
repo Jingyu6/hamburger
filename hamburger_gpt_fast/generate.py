@@ -149,7 +149,7 @@ def decode_n_tokens(
         new_tokens = [] # We don't use hamburger for draft so no need to output probs
         while total_gen < num_new_tokens:
             next_token = decode_tokens_hamburger(
-                model, cur_token, input_pos, block_mask, is_hamburger=True, **sampling_kwargs
+                model, cur_token, input_pos, block_mask, **sampling_kwargs
             )
             output_len = len(next_token)
             input_pos += 1
