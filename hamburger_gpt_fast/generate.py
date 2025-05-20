@@ -503,7 +503,7 @@ def main(
 
         if is_hamburger:
             global decode_tokens_hamburger
-            decode_tokens_hamburger = torch.compile(decode_tokens_hamburger)
+            decode_tokens_hamburger = torch.compile(decode_tokens_hamburger, mode="reduce-overhead")
         else:
             global decode_one_token, prefill
             decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
