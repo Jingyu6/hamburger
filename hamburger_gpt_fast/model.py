@@ -290,25 +290,20 @@ class _CompositionalEmbedder(nn.Module):
         )
 
     def _merge_fn(self, embeddings: torch.Tensor):
-        emb_len = embeddings.shape[0]
-        if emb_len == 1:
-            # we dont do merging
-            return embeddings
         merge_emb = self.merger.forward(embeddings)
         merge_emb = self.out_proj.forward(merge_emb)
 
         return embeddings.mean(dim=0, keepdim=True) + merge_emb
-
-    def forward(
-        self,
-        input_ids: torch.Tensor, 
-        is_prefill: bool
-    ):
+    
+    def forward(self, *args, **kwargs):
+        raise NotImplemented
+    
+    def forward_bypass(self, input_ids: torch.Tensor):
+        return self.embedding.forward(input_ids)
+    
+    def forward_merge(self, input_ids: torch.Tensor):
         embeddings = self.embedding.forward(input_ids)
-        if not is_prefill:
-            # TODO: later change it to have bs > 1
-            embeddings = self._merge_fn(embeddings[0])[None, ]
-        return embeddings
+        return self._merge_fn(embeddings[0])[None, ]
 
 
 class _ConditionalMicroStepDecoder(nn.Module):
@@ -413,8 +408,9 @@ class HAMburger(nn.Module):
         self.max_seq_length = -1
 
         # this is hacky but we will use it for now
-        self.real_pos = 0
+        self.real_pos = torch.zeros((1, ), dtype=torch.int32)
         self.output_ids = torch.empty((self.max_steps, ), dtype=torch.int32)
+        self.output_stops = torch.empty((self.max_steps, ))
 
     @classmethod
     def from_transformer(cls, model: Transformer) -> "HAMburger":
@@ -437,32 +433,37 @@ class HAMburger(nn.Module):
 
         self.max_batch_size = max(self.max_batch_size, self.model.max_batch_size)
         self.max_seq_length = max(self.max_seq_length, self.model.max_seq_length)
+        
+        device = self.model.output.weight.device
+        self.real_pos = self.real_pos.to(device)
+        self.output_ids = self.output_ids.to(device)
+        self.output_stops = self.output_stops.to(device)
 
-        # move device
-        self.output_ids = self.output_ids.to(self.model.output.weight.device)
+    def process_outputs(self, output_ids: Tensor, output_stops: Tensor) -> Tensor:
+        for i in range(self.max_steps):
+            if output_stops[i].item() == True:
+                self.real_pos += i
+                return output_ids[:i + 1]
+        self.real_pos += self.max_steps - 1
+        return output_ids
 
-    def forward(
-        self, 
-        mask: BlockMask, 
-        idx: Tensor, 
-        input_pos: Optional[Tensor] = None, 
-        is_prefill: bool = False
-    ) -> Tensor:
-        """
-            Input shapes:
-                idx: [bs, seqlen]
-                input_pos: [seqlen]
-        """
+    def forward(self, *args, **kwargs):
+        raise NotImplemented
+    
+    def forward_prefill(self, mask: BlockMask, idx: Tensor, input_pos: Tensor) -> Tensor:
+        self.real_pos *= 0
+        x = self.comp_embedder.forward_bypass(idx)
+        return self._forward(mask, x, input_pos, input_pos)
 
-        # Compositional embedder 
-        x = self.comp_embedder.forward(idx, is_prefill)
+    def forward_decode_bypass(self, mask: BlockMask, idx: Tensor, input_pos: Tensor) -> Tensor:
+        x = self.comp_embedder.forward_bypass(idx)
+        return self._forward(mask, x, input_pos, input_pos + self.real_pos)
 
-        # Compute the pos for positional embedding
-        if is_prefill:
-            freqs_cis_pos = input_pos
-        else: 
-            freqs_cis_pos = input_pos + self.real_pos
+    def forward_decode_merge(self, mask: BlockMask, idx: Tensor, input_pos: Tensor) -> Tensor:
+        x = self.comp_embedder.forward_merge(idx)
+        return self._forward(mask, x, input_pos, input_pos + self.real_pos)
 
+    def _forward(self, mask: BlockMask, x: Tensor, input_pos: Tensor, freqs_cis_pos: Tensor) -> Tensor:
         # Base models list of [bs, 1, d] since we just want the last one
         hiddens = self.model.forward_hamburger(
             mask=mask, 
@@ -476,8 +477,7 @@ class HAMburger(nn.Module):
             device=hiddens.device
         )
 
-        i = 0
-        while i < self.max_steps:
+        for i in range(self.max_steps): 
             if i > 0:
                 # TODO: Look at how cache is done
                 for decoder in self.micro_step_decoder.decoders:
@@ -509,18 +509,9 @@ class HAMburger(nn.Module):
                 ], dim=1)
 
             self.output_ids[i] = pred_token
-            i += 1
+            self.output_stops[i] = (1.0 - pred_stop) < self.micro_step_confidence
 
-            # we stop if our continue confident is less than X
-            if (1.0 - pred_stop) < self.micro_step_confidence:
-                break
-        
-        if is_prefill:
-            self.real_pos = i - 1
-        else:
-            self.real_pos += i - 1
-
-        return self.output_ids[:i]
+        return self.output_ids, self.output_stops
 
 
 class TransformerBlock(nn.Module):

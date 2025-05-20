@@ -89,16 +89,25 @@ def prefill(
     return sample(logits, **sampling_kwargs)[0]
 
 
+def _prefill_hamburger(
+    model: HAMburger, 
+    x: torch.Tensor, 
+    input_pos: torch.Tensor, 
+):
+    # input_pos: [B, S]
+    mask = create_block_mask(causal_mask, 1, 1, input_pos.shape[0], model.max_seq_length, device=x.device)
+    """ This is just a wrapper"""
+    return model.forward_prefill(mask, x, input_pos)
+
+
 def prefill_hamburger(
     model: HAMburger, 
     x: torch.Tensor, 
     input_pos: torch.Tensor, 
     **sampling_kwargs
 ) -> torch.Tensor:
-    # input_pos: [B, S]
-    mask = create_block_mask(causal_mask, 1, 1, input_pos.shape[0], model.max_seq_length, device=x.device)
-    # we need to sample ourselves
-    return model(mask, x, input_pos, is_prefill=True)
+    output_ids, output_stops = _prefill_hamburger(model, x, input_pos)
+    return model.process_outputs(output_ids, output_stops)
 
 
 def decode_one_token(
@@ -118,6 +127,32 @@ def decode_one_token(
     return sample(logits, **sampling_kwargs)
 
 
+def _decode_tokens_hamburger_bypass(
+    model: HAMburger, 
+    x: torch.Tensor, 
+    input_pos: torch.Tensor, 
+    block_mask: BlockMask, 
+):
+    block_index = input_pos // block_mask.BLOCK_SIZE[0]
+    mask = block_mask[:, :, block_index]
+    mask.mask_mod = block_mask.mask_mod
+    mask.seq_lengths = (1, model.max_seq_length)
+    return model.forward_decode_bypass(mask, x, input_pos)
+
+
+def _decode_tokens_hamburger_merge(
+    model: HAMburger, 
+    x: torch.Tensor, 
+    input_pos: torch.Tensor, 
+    block_mask: BlockMask, 
+):
+    block_index = input_pos // block_mask.BLOCK_SIZE[0]
+    mask = block_mask[:, :, block_index]
+    mask.mask_mod = block_mask.mask_mod
+    mask.seq_lengths = (1, model.max_seq_length)
+    return model.forward_decode_merge(mask, x, input_pos)
+
+
 def decode_tokens_hamburger(
     model: HAMburger, 
     x: torch.Tensor, 
@@ -125,12 +160,11 @@ def decode_tokens_hamburger(
     block_mask: BlockMask, 
     **sampling_kwargs
 ) -> torch.Tensor:
-    # input_pos: [1, N]
-    block_index = input_pos // block_mask.BLOCK_SIZE[0]
-    mask = block_mask[:, :, block_index]
-    mask.mask_mod = block_mask.mask_mod
-    mask.seq_lengths = (1, model.max_seq_length)
-    return model(mask, x, input_pos, is_prefill=False)
+    if x.shape[-1] > 1:
+        output_ids, output_stops = _decode_tokens_hamburger_merge(model, x, input_pos, block_mask)
+    else:
+        output_ids, output_stops = _decode_tokens_hamburger_bypass(model, x, input_pos, block_mask)
+    return model.process_outputs(output_ids, output_stops)
 
 
 def decode_n_tokens(
@@ -516,8 +550,9 @@ def main(
             model_forward = torch.compile(model_forward, mode="reduce-overhead", fullgraph=True)
 
         if is_hamburger:
-            global decode_tokens_hamburger
-            decode_tokens_hamburger = torch.compile(decode_tokens_hamburger, mode="reduce-overhead")
+            global _decode_tokens_hamburger_bypass, _decode_tokens_hamburger_merge
+            _decode_tokens_hamburger_bypass = torch.compile(_decode_tokens_hamburger_bypass, mode="reduce-overhead")
+            _decode_tokens_hamburger_merge = torch.compile(_decode_tokens_hamburger_merge, mode="reduce-overhead")
         else:
             global decode_one_token, prefill
             decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
