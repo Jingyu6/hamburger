@@ -439,6 +439,8 @@ class HAMburger(nn.Module):
         self.output_ids = self.output_ids.to(device)
         self.output_stops = self.output_stops.to(device)
 
+        self.real_pos = self.real_pos.to(self.model.output.weight.device)
+
     def process_outputs(self, output_ids: Tensor, output_stops: Tensor) -> Tensor:
         for i in range(self.max_steps):
             if output_stops[i].item() == True:

@@ -551,8 +551,8 @@ def main(
 
         if is_hamburger:
             global _decode_tokens_hamburger_bypass, _decode_tokens_hamburger_merge
-            _decode_tokens_hamburger_bypass = torch.compile(_decode_tokens_hamburger_bypass, mode="reduce-overhead")
-            _decode_tokens_hamburger_merge = torch.compile(_decode_tokens_hamburger_merge, mode="reduce-overhead")
+            _decode_tokens_hamburger_bypass = torch.compile(_decode_tokens_hamburger_bypass, mode="reduce-overhead", fullgraph=True)
+            _decode_tokens_hamburger_merge = torch.compile(_decode_tokens_hamburger_merge, mode="reduce-overhead", fullgraph=True)
         else:
             global decode_one_token, prefill
             decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
