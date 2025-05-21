@@ -155,10 +155,12 @@ def decode_n_tokens(
             input_pos += 1
             total_gen += output_len
             new_tokens.append(next_token.clone())
+            if torch.any(next_token == 128009):
+                break
             # TODO: ignore callback for now
             cur_token = next_token[None, ].clone()
 
-        return torch.cat(new_tokens, dim=-1)[:num_new_tokens], None
+        return torch.cat(new_tokens, dim=-1)[:total_gen], None
     else:
         new_tokens, new_probs = [], []
         for i in range(num_new_tokens):
@@ -330,6 +332,7 @@ def generate(
         # TODO: it might hurt performance for HAMburger if we continue
         # generation after EOS
         if is_hamburger:
+            seq = seq[:, :prefill_end + len(generated_tokens)]
             seq[:, prefill_end:] = generated_tokens[None, ]
         else:
             seq[:, T + 1:] = torch.cat(generated_tokens, dim=-1)
