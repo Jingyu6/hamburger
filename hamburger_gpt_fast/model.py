@@ -191,16 +191,20 @@ class Transformer(nn.Module):
         x = idx
 
         feature_offset = 0
-        features = [None] * len(self.feature_layer_indices)
+        features = torch.empty(
+            (1, len(self.feature_layer_indices), self.config.dim), 
+            dtype=x.dtype, 
+            device=x.device
+        )
 
         for i, layer in enumerate(self.layers):
             x = layer(x, input_pos, freqs_cis, mask)
             # we store the last one after norm
             if i in self.feature_layer_indices:
-                features[feature_offset] = x[:, -1:, :]
+                features[:, feature_offset:feature_offset + 1, :] = x[:, -1:, :]
                 feature_offset += 1
         x = self.norm(x)
-        features[-1] = x[:, -1:, :]
+        features[:, -1:, :] = x[:, -1:, :]
         
         return features
 
@@ -410,6 +414,7 @@ class HAMburger(nn.Module):
 
         # this is hacky but we will use it for now
         self.real_pos = 0
+        self.output_ids = torch.empty((self.max_steps, ), dtype=torch.int32)
 
     @classmethod
     def from_transformer(cls, model: Transformer) -> "HAMburger":
@@ -432,6 +437,9 @@ class HAMburger(nn.Module):
 
         self.max_batch_size = max(self.max_batch_size, self.model.max_batch_size)
         self.max_seq_length = max(self.max_seq_length, self.model.max_seq_length)
+
+        # move device
+        self.output_ids = self.output_ids.to(self.model.output.weight.device)
 
     def forward(
         self, 
@@ -456,22 +464,20 @@ class HAMburger(nn.Module):
             freqs_cis_pos = input_pos + self.real_pos
 
         # Base models list of [bs, 1, d] since we just want the last one
-        features = self.model.forward_hamburger(
+        hiddens = self.model.forward_hamburger(
             mask=mask, 
             idx=x, 
             input_pos=input_pos, 
             freqs_cis_pos=freqs_cis_pos
         )
 
-        hiddens = torch.concat(features, dim=1)
-
-        output_ids = []
         micro_input_pos = torch.arange(
             0, self.micro_step_decoder.num_features + 1, 
             device=hiddens.device
         )
 
-        for i in range(self.max_steps):
+        i = 0
+        while i < self.max_steps:
             if i > 0:
                 # TODO: Look at how cache is done
                 for decoder in self.micro_step_decoder.decoders:
@@ -502,18 +508,19 @@ class HAMburger(nn.Module):
                     self.comp_embedder.embedding.forward(pred_token).view(1, 1, -1)
                 ], dim=1)
 
-            output_ids.append(pred_token)
+            self.output_ids[i] = pred_token
+            i += 1
 
             # we stop if our continue confident is less than X
             if (1.0 - pred_stop) < self.micro_step_confidence:
                 break
         
         if is_prefill:
-            self.real_pos = len(output_ids) - 1
+            self.real_pos = i - 1
         else:
-            self.real_pos += len(output_ids) - 1
+            self.real_pos += i - 1
 
-        return torch.concat(output_ids, dim=0)
+        return self.output_ids[:i]
 
 
 class TransformerBlock(nn.Module):

@@ -249,6 +249,7 @@ def generate(
     speculate_k: Optional[int] = 8,
     callback = lambda x: x, 
     is_hamburger: bool = False, 
+    device_main = default_device, 
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -280,6 +281,8 @@ def generate(
     seq = empty
     input_pos = torch.arange(0, T, device=device)
 
+    device_sync(device=device_main)
+    t_prefill_start = time.perf_counter()
     # From now on, we might output more than one token per step for HAMburger
     if is_hamburger:
         next_token = prefill_hamburger(model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs).clone()
@@ -290,6 +293,9 @@ def generate(
         assert not is_hamburger, "HAMburger does not support spec decoding"
         prefill(draft_model, prompt.view(batch_size, -1), input_pos, **sampling_kwargs)
     
+    device_sync(device=device_main)
+    t_prefill_end = time.perf_counter()
+
     if is_hamburger:
         output_len = len(next_token)
         prefill_end = min(T + output_len, max_seq_length)
@@ -302,6 +308,8 @@ def generate(
     
     accept_counts = [0] * (speculate_k + 1)
 
+    device_sync(device=device_main)
+    t_decode_start = time.perf_counter()
     if is_speculative:
         assert not is_hamburger, "HAMburger does not support spec decoding"
         input_pos = input_pos.item()  # for speculative decoding easier to keep on host
@@ -336,9 +344,13 @@ def generate(
             seq[:, prefill_end:] = generated_tokens[None, ]
         else:
             seq[:, T + 1:] = torch.cat(generated_tokens, dim=-1)
+    
+    t_decode_end = time.perf_counter()
 
     generate_stats = {
-        'accept_counts': accept_counts
+        'accept_counts': accept_counts, 
+        'prefill_time': t_prefill_end - t_prefill_start, 
+        'decode_time': t_decode_end - t_decode_start
     }
     return seq, generate_stats
 
@@ -495,7 +507,6 @@ def main(
     prompt_length = encoded.size(-1)
 
     torch.manual_seed(1234)
-    model_size, params = _get_model_size(model)
     if compile:
         if is_speculative and use_tp: # and ("cuda" in device):
             torch._inductor.config.triton.cudagraph_trees = False # Bug with cudagraph trees in this case
@@ -516,7 +527,8 @@ def main(
                 prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
     aggregate_metrics = {
-        'tokens_per_sec': [],
+        'prefill_tps': [],
+        'decode_tps': [], 
         'accept_counts': [],
     }
     start = -1 if compile else 0
@@ -544,7 +556,6 @@ def main(
                 if len(buffer) == 4 or done_generating:
                     print(''.join(buffer), end='', flush=True)
                     buffer.clear()
-                # print(, end='', flush=True)
         else:
             callback = lambda x : x
         t0 = time.perf_counter()
@@ -565,11 +576,19 @@ def main(
                 interactive=interactive,
                 callback=callback,
                 is_hamburger=is_hamburger, 
+                device_main=device, 
                 temperature=temperature,
-                top_k=top_k,
+                top_k=top_k, 
             )
             aggregate_metrics['accept_counts'].append(metrics['accept_counts'])
+            aggregate_metrics['prefill_tps'].append(
+                prompt_length / metrics["prefill_time"]
+            )
+            aggregate_metrics['decode_tps'].append(
+                (y.size(-1) - prompt_length) / metrics["decode_time"]
+            )
         if i == -1:
+            device_sync(device=device) # MKG
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
         if hasattr(prof, "export_chrome_trace"):
@@ -578,7 +597,6 @@ def main(
             else:
                 prof.export_chrome_trace(f"{profile}.json")
         device_sync(device=device) # MKG
-        t = time.perf_counter() - t0
 
         if not interactive:
             # Just displaying the first generation
@@ -587,13 +605,9 @@ def main(
             print(tokenizer.decode(y[0].tolist()))
         else:
             print()
-        tokens_generated = y.size(-1) - prompt_length
-        generated_tokens_sec = tokens_generated / t
-        aggregate_metrics['tokens_per_sec'].append(generated_tokens_sec)
-        print(f"Time for inference {i + 1}: {t:.02f} sec total, {generated_tokens_sec:.02f} tokens/sec")
-        print(f"Bandwidth achieved: {model_size * generated_tokens_sec / 1e9:.02f} GB/s")
-        total_tokens_sec = y.numel() / t
-        print(f"FLOPS achieved: {params * total_tokens_sec * 2 / 1e12:.02f} TF/s")
+        
+        print(f"Prefill TPS {i + 1}: {aggregate_metrics['prefill_tps'][-1]:.02f}")
+        print(f"Decode TPS {i + 1}: {aggregate_metrics['decode_tps'][-1]:.02f}")
         print()
     print("==========")
     if is_speculative:
@@ -604,8 +618,8 @@ def main(
 
     print(f"Batch Size: {batch_size}")
     print(f"Prompt Length: {prompt_length}")
-    print(f"Generated tokens: {max_new_tokens}")
-    print(f"Average tokens/sec: {torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item():.2f}")
+    print(f"Average prefill TPS: {torch.mean(torch.tensor(aggregate_metrics['prefill_tps'])).item():.2f}")
+    print(f"Average decode TPS: {torch.mean(torch.tensor(aggregate_metrics['decode_tps'])).item():.2f}")    
     print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
 
 
