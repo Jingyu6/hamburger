@@ -160,7 +160,7 @@ def decode_n_tokens(
             # TODO: ignore callback for now
             cur_token = next_token[None, ].clone()
 
-        return torch.cat(new_tokens, dim=-1)[:total_gen], None
+        return torch.cat(new_tokens, dim=-1)[:min(total_gen, num_new_tokens)], None
     else:
         new_tokens, new_probs = [], []
         for i in range(num_new_tokens):
@@ -341,6 +341,7 @@ def generate(
         # generation after EOS
         if is_hamburger:
             seq = seq[:, :prefill_end + len(generated_tokens)]
+            print(prefill_end, seq.shape, len(generated_tokens))
             seq[:, prefill_end:] = generated_tokens[None, ]
         else:
             seq[:, T + 1:] = torch.cat(generated_tokens, dim=-1)
