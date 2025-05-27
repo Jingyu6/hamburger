@@ -3,8 +3,13 @@
 ## Introduction
 HAMburger is a hierachically auto-regressive model that can output multiple tokens per forward. Our approach reduces the growth of KV cache _computation_ from linear to sub-linear w.r.t. the generation length and achieves a TPS speedup proportionally. On both standard tasks and long-context tasks, HAMburger achieves up to 2x TPS boost and 2x KV cache computation (and storage) while maintaining or even surpassing the base model. 
 
+(HAMburger-1B on the left and Llama-3.2-1B-Instruct on the right)
+![](./assets/full.gif)
+
 ## Architecture
 HAMburger stacks a standard LLM (e.g., Llama-3.2-1B-Instruct) with a relative-position-aware compositional embedder before it that smashes multiple tokens into one from the last step, and a micro-step decoder after it that outputs tokens with constant FLOPs. 
+
+![](./assets/architecture.png)
 
 ## Environment Setup
 Use conda as below:
@@ -16,6 +21,9 @@ pip3 install -r requirements.txt
 
 ## Training
 HAMburger is instruction-finetuned with publicly available datasets and we provide both the training code and our trained checkpoints for full reproduction. 
+
+Here's the overall training flow:
+![](./assets/train.png)
 
 ### Data Preparation
 We prepared scripts for processing the data automatically and you can easily extend that by adding new datasets:
@@ -32,6 +40,8 @@ python3 -m hamburger.train
 ## Inference
 We implement HAMburger on both GPT-Fast and HuggingFace for a balance of simplicity and performance. 
 
+![](./assets/efficiency.png)
+
 ### Generation Demo
 To run streaming demo, simply do the following and choose the option based on guidance:
 ```bash
@@ -41,6 +51,10 @@ python generate.py
 To run GPT-Fast version, please read guidance [here](./hamburger_gpt_fast/README.md). 
 
 ### Evaluate Results
+Standard tasks:
+![](./assets/standard.png)
+Long Bench: 
+![](./assets/longbench.png)
 All evaluation-related files are stored in `./eval`. To run LongBench, simply run:
 ```bash
 cd ./eval/long_bench
