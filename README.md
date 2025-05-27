@@ -19,6 +19,8 @@ conda activate hamburger
 pip3 install -r requirements.txt
 ```
 
+To download our 1B model [here](https://drive.google.com/file/d/1a7oLCKSBl4Vu68bvBefa7EX-GQ1XAbBG/view?usp=sharing), and change the path according to your downloaded place. 
+
 ## Training
 HAMburger is instruction-finetuned with publicly available datasets and we provide both the training code and our trained checkpoints for full reproduction. 
 
@@ -88,4 +90,10 @@ bash ./eval/launch_server.sh hamburger 0.8 # for hamburger
 - A single forward (and hence a single KV cache) is required for _verification_ regardless of the number of tokens produced from last step. 
 - No alignment of the draft model is needed as the training itself has implicitly performed the process like MTP. This also greatly simplifies the serving complexity. 
 - A tunable paramter called confidence-level is introduced to help trade-off quality and speedup. 
-- Finally, we want to emphasize that HAMburger is extremely batch-friendly due to highly parallelizable drafted modules, which makes it suitable for high-throughput applications where speculative decoding can become less effective. 
+- Finally, we want to emphasize that HAMburger is extremely batch-friendly due to highly parallelizable grafted modules, which makes it suitable for high-throughput applications where speculative decoding can become less effective. 
+
+## Citation
+If you found our work to be useful and interesting, please consider citing:
+```bib
+
+```
