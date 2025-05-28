@@ -95,5 +95,13 @@ bash ./eval/launch_server.sh hamburger 0.8 # for hamburger
 ## Citation
 If you found our work to be useful and interesting, please consider citing:
 ```bib
-
+@misc{liu2025hamburgeracceleratingllminference,
+      title={HAMburger: Accelerating LLM Inference via Token Smashing}, 
+      author={Jingyu Liu and Ce Zhang},
+      year={2025},
+      eprint={2505.20438},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2505.20438}, 
+}
 ```
