@@ -1,5 +1,9 @@
 # HAMburger: Accelerating LLM Inference via Token Smashing
 
+[![Arxiv Paper](https://img.shields.io/badge/Arxiv-Paper-brightred)](https://arxiv.org/abs/2505.20438)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+![](https://img.shields.io/badge/PRs-welcome-brightgreen) ![](https://img.shields.io/github/stars/Jingyu6/hamburger?style=social) 
+
 ## Introduction
 HAMburger is a hierachically auto-regressive model that can output multiple tokens per forward. Our approach reduces the growth of KV cache _computation_ from linear to sub-linear w.r.t. the generation length and achieves a TPS speedup proportionally. On both standard tasks and long-context tasks, HAMburger achieves up to 2x TPS boost and 2x KV cache computation (and storage) while maintaining or even surpassing the base model. 
 
